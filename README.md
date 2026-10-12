@@ -56,6 +56,15 @@ A browser-based retro gaming PWA. Drop in a ROM, hit play — no installs, no ex
 - Keyboard shortcuts — press `?` in-app for the cheat sheet
 - Offline play — full PWA with service worker caching
 
+**Mod Loader** (per game, from the game's detail page → 🧩 Mods)
+- Patches — IPS, BPS and UPS (also inside a .zip). Applied in memory on top of the stored ROM at launch; the original is never modified, so switching a mod off is an exact revert. Reorderable load order, per-mod on/off, master switch, "Play original" in one tap
+- BPS/UPS are checksum-verified (source, target and patch CRC32) and refused if they were built for a different ROM version; "Check against my game" shows expected vs actual checksum. IPS has no checksums, so it is flagged "unverified"
+- N64 byte-order (z64/v64/n64) and SNES copier headers are handled automatically
+- Cheats — paste codes or import a RetroArch `.cht`/`.txt`; enabled cheats switch on when the game starts
+- Save states record which patch set they were made under and warn before loading one made under a different set
+- Everything stays on the device (IndexedDB `mods` store, DB v6) — never synced or exported. Not supported: xdelta/PPF/APS/RUP, patching disc-based systems (cheats still work)
+- Engine is `mod-engine.js` (DOM-free); tests: `node --test test/mod-engine.test.mjs` (cross-checked against RomPatcher.js when `ROMPATCHER_REF` points at its `modules/` folder)
+
 **Library**
 - ROM library with metadata stored in IndexedDB
 - ROM binaries stored in OPFS for fast local access
