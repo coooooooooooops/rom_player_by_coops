@@ -46,7 +46,19 @@ if [ -f "$EMULATOR_BACKBONE_FILE" ]; then
   rm -f "$SW_FILE.bak"
 fi
 
-echo "✅ Version stamped (index.html, version.json, sw.js, emulator-backbone.js cache-bust)"
+# Same lockstep rule for mod-engine.js (Mod Loader engine). Two references again:
+# the <script src> in index.html and the precache entry in sw.js. If this block
+# is skipped the engine keeps its old ?v= and, under the site-wide immutable
+# Cache-Control rule, browsers would keep serving a stale copy of it.
+MOD_ENGINE_FILE="$SCRIPT_DIR/mod-engine.js"
+if [ -f "$MOD_ENGINE_FILE" ]; then
+  sed -i.bak "s#mod-engine\.js?v=[A-Za-z0-9]*#mod-engine.js?v=$VERSION#" "$HTML_FILE"
+  rm -f "$HTML_FILE.bak"
+  sed -i.bak "s#/mod-engine\.js?v=[A-Za-z0-9]*#/mod-engine.js?v=$VERSION#" "$SW_FILE"
+  rm -f "$SW_FILE.bak"
+fi
+
+echo "✅ Version stamped (index.html, version.json, sw.js, emulator-backbone.js + mod-engine.js cache-bust)"
 echo "🚀 Deploying to Netlify..."
 
 # Deploy
