@@ -289,3 +289,24 @@ test('fingerprint: stable, order-sensitive, empty for no mods', () => {
   assert.equal(E.fingerprint(['a', 'b']), E.fingerprint(['a', 'b']));
   assert.notEqual(E.fingerprint(['a', 'b']), E.fingerprint(['b', 'a']));
 });
+
+/* regression: only ONE BPS/UPS patch could be stored per game */
+test('whole-file CRC32 of any "data + its own CRC" is a constant — why it can\'t identify BPS/UPS patches', () => {
+  for (const seed of [1, 2, 3, 4]) {
+    const body = makeRom(500, seed), c = E.crc32(body);
+    const withSelf = new Uint8Array([...body, c & 255, (c >>> 8) & 255, (c >>> 16) & 255, (c >>> 24) & 255]);
+    assert.equal(E.crc32(withSelf), 0x2144DF1C);
+  }
+});
+test('contentId tells BPS/UPS patches apart (and is stable)', { skip: !haveRef && 'needs reference-made patches' }, () => {
+  const orig = makeRom(8192, 5);
+  for (const fmt of ['bps', 'ups']) {
+    const ids = new Set();
+    for (const i of [1, 2, 3, 4]) { const m = orig.slice(); m[i * 500] ^= 0x5A; const p = refMake(fmt, orig, m); ids.add(E.contentId(p)); assert.equal(E.contentId(p), E.contentId(p.slice())); }
+    assert.equal(ids.size, 4, fmt + ': distinct patches must have distinct ids');
+  }
+});
+test('contentId: identical bytes collide, different IPS differ', () => {
+  const a = ipsBuild([{ off: 1, data: [1] }]), b = ipsBuild([{ off: 2, data: [1] }]);
+  assert.equal(E.contentId(a), E.contentId(a.slice())); assert.notEqual(E.contentId(a), E.contentId(b));
+});

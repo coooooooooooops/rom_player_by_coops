@@ -623,6 +623,18 @@
     return out;
   }
 
+  /* ── identity of a patch file ───────────────────────────────────── */
+  // NOT crc32(whole file). BPS and UPS end with their own CRC32, and the CRC of
+  // "data + its own CRC (little-endian)" is the same constant (0x2144DF1C) for
+  // EVERY input. Keying duplicates / fingerprints on the whole-file CRC therefore
+  // made every BPS/UPS patch look identical to the first one stored — only one
+  // could be kept per game. This hashes the body and the 4-byte tail separately
+  // (for BPS/UPS the body already embeds source+target CRCs) and adds the length.
+  function contentId(u8) {
+    const n = u8.length, cut = Math.max(0, n - 4);
+    return hex8(crc32(u8, 0, cut)) + ':' + hex8(crc32(u8, cut, n)) + ':' + n;
+  }
+
   /* ── fingerprint of an active mod set ───────────────────────────── */
   // Used to stamp save states so loading a state made under a DIFFERENT mod
   // setup can be flagged (states are raw core memory snapshots: restoring
@@ -636,7 +648,7 @@
     ModError, crc32, hex8, detectFormat, describePatch, FORMAT_NAMES,
     applyIPS, applyBPS, applyUPS, applyOne, applyChain,
     n64Order, toZ64, isCopierHeadered, romVariants,
-    extractPatchesFromZip, parseCheats, fingerprint,
+    extractPatchesFromZip, parseCheats, fingerprint, contentId,
     LIMITS: { MAX_PATCH_BYTES, MAX_TARGET_BYTES, MAX_ROM_PATCHABLE, MAX_CHEATS },
   };
 });

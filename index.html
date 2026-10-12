@@ -3427,8 +3427,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 <footer>ROM Player by Coops · Emulation core: <a href="https://emulatorjs.org" target="_blank" rel="noopener">EmulatorJS</a>, booted via our own <a href="https://github.com/coops-emulator/coops_emulator_backbone" target="_blank" rel="noopener">coops_emulator_backbone</a> wrapper · Runs 100% locally · No data uploaded</footer>
 <div class="toast" id="toast"></div>
 
-<script src="emulator-backbone.js?v=20261012090400"></script>
-<script src="mod-engine.js?v=20261012090400"></script>
+<script src="emulator-backbone.js?v=20261012091307"></script>
+<script src="mod-engine.js?v=20261012091307"></script>
 <script>
 /* ══ SYSTEM DEFINITIONS ══════════════════════════════
    `core` is ROM Player's own internal system id — used
@@ -7637,7 +7637,7 @@ _storageReadyPromise.then(async () => {
    the server every load. If newer, the update banner
    appears automatically in Settings.
 ═══════════════════════════════════════════════════ */
-const APP_VERSION = '20261012090400';
+const APP_VERSION = '20261012091307';
 
 // VERSION_URL: source of truth for checking whether an update is available.
 // We check our own Cloudflare domain first — instant and always in sync with what's live.
@@ -9587,7 +9587,7 @@ if ('serviceWorker' in navigator) {
           // Fingerprint = which patches, with which content, in which order.
           _activeFp = ME.fingerprint(res.applied.map(a => {
             const src = list.find(l => l.name === a.name);
-            return a.name + ':' + (src ? ME.hex8(ME.crc32(src.bytes)) : '');
+            return a.name + ':' + (src ? ME.contentId(src.bytes) : '');
           }));
         }
         res.notes.forEach(n => console.info('[mods]', n));
@@ -9654,7 +9654,7 @@ if ('serviceWorker' in navigator) {
       for (const it of items) {
         const d = ME.describePatch(it.bytes);
         if (!d.valid) { msgs.push(it.name + ': ' + (d.error || 'not a valid patch.')); continue; }
-        const crc = ME.hex8(ME.crc32(it.bytes));
+        const crc = ME.contentId(it.bytes); // see contentId(): whole-file CRC is constant for BPS/UPS
         if (known.has(crc)) { msgs.push(it.name + ': already added.'); continue; }
         if (count >= MAX_PATCHES) { msgs.push('Limit of ' + MAX_PATCHES + ' patches per game reached.'); break; }
         const id = 'p::' + S.gameId + '::' + uid();
@@ -9762,9 +9762,12 @@ if ('serviceWorker' in navigator) {
     if (rest.length) {
       if (DISC_CORES.indexOf(S.core) !== -1) showToast('Patch mods aren\'t available for disc-based systems — cheats only.');
       else {
+        const before = (await modsGet(S.gameId)).patches.length;
         const msgs = await addPatchFiles(S, rest);
-        if (msgs.length) showToast('⚠️ ' + msgs[0] + (msgs.length > 1 ? ' (+' + (msgs.length - 1) + ' more)' : ''));
-        else showToast('🧩 Mod added and selected');
+        const added = (await modsGet(S.gameId)).patches.length - before;
+        // A toast only shows the first problem and vanishes; keep the full result in the sheet.
+        S.note = msgs.length ? { cls: added ? 'warn' : 'bad', text: (added ? 'Added ' + added + '. ' : '') + 'Skipped: ' + msgs.join('  ·  ') } : null;
+        showToast(added ? '🧩 ' + (added === 1 ? 'Mod added and selected' : added + ' mods added') : '⚠️ ' + msgs[0]);
         S.tab = 'patches';
       }
     }
@@ -9794,6 +9797,7 @@ if ('serviceWorker' in navigator) {
 
   function renderList() {
     const d = S.data, el = root.querySelector('#ms-list'), foot = root.querySelector('#ms-foot');
+    const note = S.note ? '<div class="ms-note ' + S.note.cls + '" style="margin:0 0 4px">' + esc(S.note.text) + '</div>' : '';
     if (S.tab === 'patches') {
       const disc = DISC_CORES.indexOf(S.core) !== -1;
       if (!d.patches.length) {
@@ -9815,6 +9819,7 @@ if ('serviceWorker' in navigator) {
             ${d.active === p.id ? '<span class="ms-pill ok">PLAYING</span>' : ''}
           </div>`).join('');
       }
+      if (note) el.insertAdjacentHTML('afterbegin', note);
       foot.innerHTML = '<button class="ms-btn primary" data-act="add">＋ Add patch</button>';
       foot.firstChild.disabled = DISC_CORES.indexOf(S.core) !== -1;
     } else {
@@ -9872,7 +9877,7 @@ if ('serviceWorker' in navigator) {
     if (act === 'close') return closeModLoader();
     if (act === 'select') { S.sel = id; return render(); }
     if (act === 'use') { e.stopPropagation(); await setActive(S.gameId, id || null); S.sel = id || S.sel; return refresh(); }
-    if (act === 'tab') { S.tab = t.dataset.tab; return render(); }
+    if (act === 'tab') { S.tab = t.dataset.tab; S.note = null; return render(); }
     if (act === 'add' || act === 'cheat-import') return root.querySelector('#ms-file').click();
     if (act === 'play' || act === 'vanilla') {
       const { name, core, sysLabel } = S;
