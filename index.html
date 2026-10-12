@@ -2625,6 +2625,12 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
   .ms-foot { padding: 10px 0 12px; } .ms-btn { padding: 11px 12px; }
 }
 
+.ms-radio { position: relative; flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; padding: 0; cursor: pointer; background: transparent; border: 2px solid var(--dim, var(--muted)); transition: border-color .2s, box-shadow .25s; }
+.ms-radio::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); transform: scale(0); transition: transform .35s var(--fx-spring); }
+.ms-radio.on { border-color: var(--accent); box-shadow: 0 0 14px var(--glow); } .ms-radio.on::after { transform: scale(1); }
+.ms-item:hover .ms-radio:not(.on) { border-color: var(--accent2); }
+.ms-item.orig { background: transparent; border: 1px dashed var(--fx-glass-br); } .ms-item.orig.sel { background: linear-gradient(100deg, var(--fx-accent-soft), transparent 70%); border-style: solid; border-color: var(--accent); }
+
 /* ── Reduced motion: remove movement, keep state changes legible ─── */
 @media (prefers-reduced-motion: reduce) {
   .fx-orb, .fx-beam, .hdr, .home-tabs, .hdr-logo::after, .hdr-text h1, .dz, .dz .big, .hero-card, .hero-card::before, .hero-art img, .hero-play,
@@ -3421,8 +3427,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 <footer>ROM Player by Coops · Emulation core: <a href="https://emulatorjs.org" target="_blank" rel="noopener">EmulatorJS</a>, booted via our own <a href="https://github.com/coops-emulator/coops_emulator_backbone" target="_blank" rel="noopener">coops_emulator_backbone</a> wrapper · Runs 100% locally · No data uploaded</footer>
 <div class="toast" id="toast"></div>
 
-<script src="emulator-backbone.js?v=20261011192612"></script>
-<script src="mod-engine.js?v=20261011192612"></script>
+<script src="emulator-backbone.js?v=20261012090400"></script>
+<script src="mod-engine.js?v=20261012090400"></script>
 <script>
 /* ══ SYSTEM DEFINITIONS ══════════════════════════════
    `core` is ROM Player's own internal system id — used
@@ -7631,7 +7637,7 @@ _storageReadyPromise.then(async () => {
    the server every load. If newer, the update banner
    appears automatically in Settings.
 ═══════════════════════════════════════════════════ */
-const APP_VERSION = '20261011192612';
+const APP_VERSION = '20261012090400';
 
 // VERSION_URL: source of truth for checking whether an update is available.
 // We check our own Cloudflare domain first — instant and always in sync with what's live.
@@ -7663,7 +7669,7 @@ let _updateCheckInProgress = false;
    visitors see the tutorial instead, never this.
 ═══════════════════════════════════════════════════ */
 const CHANGELOG_ITEMS = [
-  '🧩 <strong>Mod Loader</strong> — add IPS, BPS and UPS patches (fan translations, ROM hacks, fixes) and cheat codes to any game from its detail page. Patches apply on top of your game each time you play; the original is never changed. Reorder them, switch them on/off, or play the original in one tap',
+  '🧩 <strong>Mod Loader</strong> — save as many IPS, BPS and UPS patches (fan translations, ROM hacks, fixes) as you like for any game, then pick which one plays — one at a time, or the original in a tap. Cheat codes too. The original game is never changed',
   '🎬 <strong>Cinematic redesign</strong> — new home billboard, 3D game cards, animated tabs, a diagonal-curtain launch, and a refreshed game page. Everything follows your theme, and respects reduced-motion',
   '✨ <strong>Premium gets a massive upgrade</strong> — 10 save slots with screenshot thumbnails, 8 exclusive themes, play stats dashboard, cloud library sync, and Linkup Room passwords',
   '📊 <strong>Stats dashboard</strong> — track total hours, top games by play time, and a 60-day activity heatmap (Premium, new 📊 tab)',
@@ -9415,7 +9421,8 @@ if ('serviceWorker' in navigator) {
 
 <script id="rp-mods">
 /* ══ MOD LOADER ═════════════════════════════════════════════════════
-   Per-game mods: patches (IPS/BPS/UPS) + cheats.
+   Per-game mods: patches (IPS/BPS/UPS) + cheats. A game can STORE any number of
+   patch mods but PLAYS WITH ONE at a time (or the original) — cfg::<gameId>.active.
    Pure logic lives in mod-engine.js (window.CoopsModEngine, unit-tested);
    this block is storage + UI + the launch()/save-state hooks.
 
@@ -9463,27 +9470,47 @@ if ('serviceWorker' in navigator) {
   }
   const touch = () => { _summary = null; window.dispatchEvent(new CustomEvent('rp-mods-changed')); };
 
+  // Which stored patch plays. cfg.active: a patch id, or null = original game.
+  // LEGACY (first release stacked every enabled patch and used cfg.enabled as a
+  // master switch): with no `active` recorded, fall back to the first enabled
+  // patch so anyone who already added mods keeps one selected, not a surprise vanilla.
+  function resolveActive(patches, cfg) {
+    cfg = cfg || {};
+    if (cfg.active !== undefined) return patches.some(p => p.id === cfg.active) ? cfg.active : null;
+    if (cfg.enabled === false) return null;
+    const f = patches.find(p => p.enabled !== false);
+    return f ? f.id : null;
+  }
+
   async function modsGet(gameId) {
     const [ps, cs, cfg] = await Promise.all([
       range('p::' + gameId + '::'), range('c::' + gameId + '::'),
       dbGet(STORE, 'cfg::' + gameId).catch(() => null),
     ]);
+    const patches = ps.filter(x => x.gameId === gameId).sort((a, b) => a.order - b.order);
     return {
       cfg: cfg || { enabled: true },
-      patches: ps.filter(x => x.gameId === gameId).sort((a, b) => a.order - b.order),
+      patches, active: resolveActive(patches, cfg),
       cheats: cs.filter(x => x.gameId === gameId).sort((a, b) => a.order - b.order),
     };
   }
+  async function setActive(gameId, id) {
+    await dbPut(STORE, { id: 'cfg::' + gameId, gameId, kind: 'cfg', enabled: true, active: id || null });
+    touch();
+  }
 
-  // Counts for library badges. Metadata records only.
+  // Counts for library badges. Metadata records only. `patches` = 1 when a mod is
+  // selected to play (0 for the original); `stored` = how many are saved.
   async function modsSummary() {
     if (_summary) return _summary;
     const m = new Map();
-    const get = g => { let o = m.get(g); if (!o) m.set(g, o = { patches: 0, cheats: 0, on: true }); return o; };
+    const get = g => { let o = m.get(g); if (!o) m.set(g, o = { patches: 0, stored: 0, cheats: 0, on: true }); return o; };
     try {
-      for (const p of await range('p::')) if (p.enabled) get(p.gameId).patches++;
+      const ps = await range('p::'), cfgs = new Map((await range('cfg::')).map(c => [c.gameId, c]));
+      const by = new Map();
+      for (const p of ps) { if (!by.has(p.gameId)) by.set(p.gameId, []); by.get(p.gameId).push(p); }
+      for (const [g, list] of by) { const o = get(g); o.stored = list.length; o.patches = resolveActive(list, cfgs.get(g)) ? 1 : 0; }
       for (const c of await range('c::')) if (c.enabled) get(c.gameId).cheats++;
-      for (const c of await range('cfg::')) if (c.enabled === false) get(c.gameId).on = false;
     } catch (e) { /* badges are cosmetic */ }
     return (_summary = m);
   }
@@ -9508,7 +9535,10 @@ if ('serviceWorker' in navigator) {
       if (blob) await dbPut(STORE, { id: 'b::' + nid, data: blob.data });
     }
     for (const c of st.cheats) await dbPut(STORE, { ...c, id: 'c::' + newId + '::' + c.uid, gameId: newId });
-    if (st.cfg && st.cfg.id) await dbPut(STORE, { ...st.cfg, id: 'cfg::' + newId, gameId: newId });
+    if (st.cfg && st.cfg.id) {
+      const act = st.active ? 'p::' + newId + '::' + st.active.split('::').pop() : null; // ids embed the game id
+      await dbPut(STORE, { ...st.cfg, id: 'cfg::' + newId, gameId: newId, active: act });
+    }
     await modsRemoveAll(oldId);
   }
 
@@ -9529,8 +9559,6 @@ if ('serviceWorker' in navigator) {
     if (_skipOnce) { _skipOnce = false; return out; }
     const gameId = sys.core + '::' + name;
     const st = await modsGet(gameId);
-    if (st.cfg.enabled === false) return out;
-
     const cheats = st.cheats.filter(c => c.enabled);
     if (cheats.length) {
       window.EJS_cheats = cheats.map(c => [c.desc, c.code]);
@@ -9538,9 +9566,10 @@ if ('serviceWorker' in navigator) {
       out.cheats = cheats;
     }
 
-    const patches = st.patches.filter(p => p.enabled);
+    // ONE mod at a time: only the selected patch is applied (none = original game).
+    const patches = st.active ? st.patches.filter(p => p.id === st.active) : [];
     if (patches.length && DISC_CORES.indexOf(sys.core) === -1) {
-      splashStatus('Applying ' + patches.length + (patches.length === 1 ? ' mod…' : ' mods…'));
+      splashStatus('Applying ' + patches[0].name.replace(/\.[^.]+$/, '') + '…');
       try {
         const rom = new Uint8Array(await (await fetch(romUrl)).arrayBuffer());
         const list = [];
@@ -9571,7 +9600,7 @@ if ('serviceWorker' in navigator) {
     }
 
     // Surface what happened — silently launching vanilla would look like a bug.
-    if (out.applied.length) showToast('🧩 ' + out.applied.length + (out.applied.length === 1 ? ' mod' : ' mods') + ' applied' + (out.cheats.length ? ' · ' + out.cheats.length + ' cheats' : ''));
+    if (out.applied.length) showToast('🧩 ' + out.applied[0].name.replace(/\.[^.]+$/, '') + ' applied' + (out.cheats.length ? ' · ' + out.cheats.length + ' cheats' : ''));
     else if (out.cheats.length) showToast('🧩 ' + out.cheats.length + (out.cheats.length === 1 ? ' cheat' : ' cheats') + ' enabled');
     if (out.skipped.length) setTimeout(() => showToast('⚠️ Skipped ' + out.skipped[0].name + ' — ' + out.skipped[0].reason + (out.skipped.length > 1 ? ' (+' + (out.skipped.length - 1) + ' more)' : '')), out.applied.length ? 2600 : 0);
     const badge = document.getElementById('sbadge');
@@ -9608,6 +9637,7 @@ if ('serviceWorker' in navigator) {
   async function addPatchFiles(S, files) {
     const msgs = [];
     const st = await modsGet(S.gameId);
+    const addedIds = [];
     let count = st.patches.length, order = st.patches.reduce((m, p) => Math.max(m, p.order), -1);
     const known = new Set();
     for (const p of st.patches) known.add(p.crc);
@@ -9628,12 +9658,14 @@ if ('serviceWorker' in navigator) {
         if (known.has(crc)) { msgs.push(it.name + ': already added.'); continue; }
         if (count >= MAX_PATCHES) { msgs.push('Limit of ' + MAX_PATCHES + ' patches per game reached.'); break; }
         const id = 'p::' + S.gameId + '::' + uid();
-        await dbPut(STORE, { id, uid: id.split('::').pop(), gameId: S.gameId, kind: 'patch', name: it.name, fmt: d.format, size: it.bytes.length, enabled: true, order: ++order, header: 'auto', crc, info: d, added: Date.now() });
+        await dbPut(STORE, { id, uid: id.split('::').pop(), gameId: S.gameId, kind: 'patch', name: it.name.replace(/\.(ips|bps|ups)$/i, ''), file: it.name, fmt: d.format, size: it.bytes.length, enabled: true, order: ++order, header: 'auto', crc, info: d, added: Date.now() });
         await dbPut(STORE, { id: 'b::' + id, data: it.bytes.buffer.slice(it.bytes.byteOffset, it.bytes.byteOffset + it.bytes.byteLength) });
-        known.add(crc); count++;
+        known.add(crc); count++; addedIds.push(id);
         S.sel = id;
       }
     }
+    // A freshly added mod becomes the one that plays (the first, if a zip held several).
+    if (addedIds.length) await setActive(S.gameId, addedIds[0]);
     touch();
     return msgs;
   }
@@ -9688,7 +9720,7 @@ if ('serviceWorker' in navigator) {
         <button class="ms-close" data-act="close" aria-label="Close mod loader">✕</button>
         <section class="ms-left">
           <div class="ms-head"><div class="ms-cover" id="ms-cover"></div><div style="min-width:0"><div class="ms-title">Mod Loader</div><div class="ms-game" id="ms-game"></div><div class="ms-sys" id="ms-sys"></div></div></div>
-          <div class="ms-master"><div>Mods for this game<small id="ms-master-sub"></small></div><button class="ms-sw" id="ms-master" role="switch" data-act="master" aria-label="Enable mods for this game"></button></div>
+          <div class="ms-master"><div>One mod plays at a time<small id="ms-master-sub"></small></div></div>
           <div class="ms-tabs" role="tablist"><button class="ms-tab" role="tab" data-act="tab" data-tab="patches" id="ms-tab-patches"></button><button class="ms-tab" role="tab" data-act="tab" data-tab="cheats" id="ms-tab-cheats"></button></div>
           <div class="ms-list" id="ms-list"></div>
           <div class="ms-foot" id="ms-foot"></div>
@@ -9700,7 +9732,10 @@ if ('serviceWorker' in navigator) {
 
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
-    root.addEventListener('keydown', e => { if (e.key === 'Escape') closeModLoader(); });
+    root.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeModLoader();
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.ms-item[role=radio]')) { e.preventDefault(); e.target.click(); }
+    });
     const panel = root.querySelector('#ms-panel');
     let dragDepth = 0;
     panel.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; panel.classList.add('drag'); });
@@ -9729,7 +9764,7 @@ if ('serviceWorker' in navigator) {
       else {
         const msgs = await addPatchFiles(S, rest);
         if (msgs.length) showToast('⚠️ ' + msgs[0] + (msgs.length > 1 ? ' (+' + (msgs.length - 1) + ' more)' : ''));
-        else showToast('🧩 Patch added');
+        else showToast('🧩 Mod added and selected');
         S.tab = 'patches';
       }
     }
@@ -9740,12 +9775,10 @@ if ('serviceWorker' in navigator) {
 
   function render() {
     const d = S.data, patches = d.patches, cheats = d.cheats;
-    const on = d.cfg.enabled !== false;
     root.querySelector('#ms-game').textContent = S.name;
     root.querySelector('#ms-sys').textContent = S.sysLabel;
-    const m = root.querySelector('#ms-master');
-    m.setAttribute('aria-checked', on ? 'true' : 'false');
-    root.querySelector('#ms-master-sub').textContent = on ? 'Applied every time you play' : 'Off — plays as the original game';
+    const act = d.patches.find(p => p.id === d.active);
+    root.querySelector('#ms-master-sub').textContent = act ? 'Playing with “' + act.name + '”' : 'Playing the original game';
     const tp = root.querySelector('#ms-tab-patches'), tc = root.querySelector('#ms-tab-cheats');
     tp.innerHTML = 'Patches<span class="n">' + patches.length + '</span>'; tc.innerHTML = 'Cheats<span class="n">' + cheats.length + '</span>';
     tp.classList.toggle('on', S.tab === 'patches'); tc.classList.toggle('on', S.tab === 'cheats');
@@ -9768,12 +9801,18 @@ if ('serviceWorker' in navigator) {
           ? '<b>Patches aren\'t available for disc systems.</b><br>You can still add cheat codes on the Cheats tab.'
           : '<b>No patches yet.</b><br>Drop an <b>.ips</b>, <b>.bps</b> or <b>.ups</b> file (or a .zip containing one) anywhere on this window. Patches are applied on top of your game each time you play — the original is never changed.') + '</div>';
       } else {
-        el.innerHTML = d.patches.map((p, idx) => `
-          <div class="ms-item ${p.enabled ? '' : 'off'} ${S.sel === p.id ? 'sel' : ''}" data-act="select" data-id="${esc(p.id)}" style="--i:${idx}">
-            <button class="ms-sw" role="switch" aria-checked="${p.enabled}" data-act="toggle" data-id="${esc(p.id)}" aria-label="Enable ${esc(p.name)}"></button>
+        const orig = `
+          <div class="ms-item orig ${d.active ? '' : 'sel'}" data-act="use" data-id="" role="radio" aria-checked="${!d.active}" tabindex="0" style="--i:0">
+            <span class="ms-radio ${d.active ? '' : 'on'}"></span>
+            <div style="min-width:0"><div class="ms-name">Original game</div><div class="ms-sub"><span>No patch — as it was released</span></div></div>
+            ${d.active ? '' : '<span class="ms-pill ok">PLAYING</span>'}
+          </div>`;
+        el.innerHTML = orig + d.patches.map((p, idx) => `
+          <div class="ms-item ${d.active === p.id ? 'sel' : ''}" data-act="select" data-id="${esc(p.id)}" role="radio" aria-checked="${d.active === p.id}" tabindex="0" style="--i:${idx + 1}">
+            <button class="ms-radio ${d.active === p.id ? 'on' : ''}" data-act="use" data-id="${esc(p.id)}" aria-label="Play with ${esc(p.name)}"></button>
             <div style="min-width:0"><div class="ms-name" title="${esc(p.name)}">${esc(p.name)}</div>
-              <div class="ms-sub"><span class="ms-pill fmt">${esc((ME.FORMAT_NAMES[p.fmt] || p.fmt))}</span>${statusPill(p)}<span>${fmtBytes(p.size)}</span><span>#${idx + 1}</span></div></div>
-            <div class="ms-order"><button class="ms-mini" data-act="up" data-id="${esc(p.id)}" ${idx === 0 ? 'disabled' : ''} aria-label="Move earlier">▲</button><button class="ms-mini" data-act="down" data-id="${esc(p.id)}" ${idx === d.patches.length - 1 ? 'disabled' : ''} aria-label="Move later">▼</button></div>
+              <div class="ms-sub"><span class="ms-pill fmt">${esc((ME.FORMAT_NAMES[p.fmt] || p.fmt))}</span>${statusPill(p)}<span>${fmtBytes(p.size)}</span></div></div>
+            ${d.active === p.id ? '<span class="ms-pill ok">PLAYING</span>' : ''}
           </div>`).join('');
       }
       foot.innerHTML = '<button class="ms-btn primary" data-act="add">＋ Add patch</button>';
@@ -9800,9 +9839,9 @@ if ('serviceWorker' in navigator) {
     }
     const p = d.patches.find(x => x.id === S.sel);
     if (!p) {
-      el.innerHTML = `<h3>${d.patches.length ? 'Select a patch' : 'Make it yours'}</h3><p class="lead">${d.patches.length
-        ? 'Pick a patch on the left to see its details and check it against your copy of the game. Patches apply top-to-bottom — if two change the same thing, the lower one wins.'
-        : 'Fan translations, ROM hacks, bug fixes and quality-of-life patches all work here. Everything you add stays on this device, and switching a mod off restores the original instantly.'}</p>`;
+      el.innerHTML = `<h3>${d.patches.length ? 'Pick a mod' : 'Make it yours'}</h3><p class="lead">${d.patches.length
+        ? 'Save as many mods as you like for this game — tap the circle next to one to play with it. Only one plays at a time, and “Original game” is always one tap away. Select a mod to see its details or rename it.'
+        : 'Fan translations, ROM hacks, bug fixes and quality-of-life patches all work here. Add as many as you want and switch between them any time. Everything you add stays on this device, and the original game is never changed.'}</p>`;
       return;
     }
     const i = p.info || {}, kind = kindFor(S.core);
@@ -9811,19 +9850,20 @@ if ('serviceWorker' in navigator) {
     else { rows.push(['Needs ROM', ME.hex8(i.sourceCrc).toUpperCase() + ' · ' + fmtBytes(i.sourceSize)]); rows.push(['Produces', ME.hex8(i.targetCrc).toUpperCase() + ' · ' + fmtBytes(i.targetSize)]); }
     const cr = S.compat && S.compat.id === p.id ? S.compat.res : null;
     el.innerHTML = `<h3>${esc(p.name)}</h3>
+      <div class="ms-field"><label for="ms-name">Name</label><input id="ms-name" data-id="${esc(p.id)}" value="${esc(p.name)}" maxlength="80" autocomplete="off"></div>
       <div class="ms-kv">${rows.map(r => '<div>' + esc(r[0]) + '</div><div>' + esc(r[1]) + '</div>').join('')}</div>
       ${i.meta ? '<div class="ms-note">' + esc(String(i.meta).replace(/<[^>]*>/g, ' ').trim().slice(0, 400)) + '</div>' : ''}
       ${cr ? '<div class="ms-note ' + cr.cls + '">' + esc(cr.text) + '</div>' : ''}
       ${p.fmt === 'ips' && kind === 'snes' ? `<div class="ms-field"><label for="ms-header">ROM header</label><select id="ms-header" data-id="${esc(p.id)}"><option value="auto" ${p.header === 'auto' ? 'selected' : ''}>Auto (strip copier header)</option><option value="keep" ${p.header === 'keep' ? 'selected' : ''}>Keep header as-is</option><option value="strip" ${p.header === 'strip' ? 'selected' : ''}>Always strip header</option></select></div>` : ''}
-      <div class="ms-row"><button class="ms-btn" data-act="check" data-id="${esc(p.id)}">${cr ? 'Re-check' : 'Check against my game'}</button><button class="ms-btn danger" data-act="remove" data-id="${esc(p.id)}">Remove</button></div>`;
+      <div class="ms-row">${d.active === p.id ? '' : '<button class="ms-btn primary" data-act="use" data-id="' + esc(p.id) + '">Play with this mod</button>'}<button class="ms-btn" data-act="check" data-id="${esc(p.id)}">${cr ? 'Re-check' : 'Check against my game'}</button><button class="ms-btn danger" data-act="remove" data-id="${esc(p.id)}">Remove</button></div>`;
   }
 
   function renderPlay() {
-    const d = S.data, act = d.cfg.enabled !== false && (d.patches.some(p => p.enabled) || d.cheats.some(c => c.enabled));
-    const n = d.patches.filter(p => p.enabled).length + d.cheats.filter(c => c.enabled).length;
+    const d = S.data, act = d.patches.find(p => p.id === d.active), ch = d.cheats.filter(c => c.enabled).length;
+    const label = act ? 'Play · ' + act.name : (ch ? 'Play original + ' + ch + (ch === 1 ? ' cheat' : ' cheats') : 'Play original');
     root.querySelector('#ms-play').innerHTML =
-      '<button class="ms-btn primary" data-act="play">▶ Play' + (act ? ' with ' + n + (n === 1 ? ' mod' : ' mods') : '') + '</button>' +
-      (act ? '<button class="ms-btn" data-act="vanilla">Play original</button>' : '');
+      '<button class="ms-btn primary" data-act="play" title="' + esc(label) + '" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">▶ ' + esc(label) + '</button>' +
+      (act || ch ? '<button class="ms-btn" data-act="vanilla">Play original, no cheats</button>' : '');
   }
 
   async function onClick(e) {
@@ -9831,6 +9871,7 @@ if ('serviceWorker' in navigator) {
     const act = t.dataset.act, id = t.dataset.id;
     if (act === 'close') return closeModLoader();
     if (act === 'select') { S.sel = id; return render(); }
+    if (act === 'use') { e.stopPropagation(); await setActive(S.gameId, id || null); S.sel = id || S.sel; return refresh(); }
     if (act === 'tab') { S.tab = t.dataset.tab; return render(); }
     if (act === 'add' || act === 'cheat-import') return root.querySelector('#ms-file').click();
     if (act === 'play' || act === 'vanilla') {
@@ -9841,17 +9882,12 @@ if ('serviceWorker' in navigator) {
       return libPlayFromDB(name, core, sysLabel);
     }
     const d = S.data;
-    if (act === 'master') { await dbPut(STORE, { id: 'cfg::' + S.gameId, gameId: S.gameId, kind: 'cfg', enabled: d.cfg.enabled === false }); touch(); return refresh(); }
-    if (act === 'toggle' || act === 'up' || act === 'down' || act === 'remove') {
-      const idx = d.patches.findIndex(p => p.id === id); if (idx < 0) return;
-      const p = d.patches[idx];
-      if (act === 'toggle') { e.stopPropagation(); await dbPut(STORE, { ...p, enabled: !p.enabled }); }
-      else if (act === 'remove') { await dbDelete(STORE, p.id); await dbDelete(STORE, 'b::' + p.id); if (S.sel === id) S.sel = null; S.compat = null; }
-      else { // swap order values with the neighbour
-        e.stopPropagation();
-        const o = d.patches[act === 'up' ? idx - 1 : idx + 1]; if (!o) return;
-        await dbPut(STORE, { ...p, order: o.order }); await dbPut(STORE, { ...o, order: p.order });
-      }
+    if (act === 'remove') {
+      const p = d.patches.find(x => x.id === id); if (!p) return;
+      if (!confirm('Remove “' + p.name + '” from this game?')) return;
+      await dbDelete(STORE, p.id); await dbDelete(STORE, 'b::' + p.id);
+      if (d.active === p.id) await setActive(S.gameId, null); // never leave a dangling selection
+      if (S.sel === id) S.sel = null; S.compat = null;
       touch(); return refresh();
     }
     if (act === 'check') {
@@ -9870,6 +9906,11 @@ if ('serviceWorker' in navigator) {
     }
   }
   async function onChange(e) {
+    if (e.target.id === 'ms-name' && S) {
+      const p = S.data.patches.find(x => x.id === e.target.dataset.id), v = e.target.value.trim().slice(0, 80);
+      if (p && v && v !== p.name) { await dbPut(STORE, { ...p, name: v }); touch(); await refresh(); }
+      return;
+    }
     if (e.target.id === 'ms-header' && S) {
       const p = S.data.patches.find(x => x.id === e.target.dataset.id);
       if (p) { await dbPut(STORE, { ...p, header: e.target.value }); touch(); S.compat = null; await refresh(); }
@@ -9881,7 +9922,7 @@ if ('serviceWorker' in navigator) {
     lastFocus = document.activeElement;
     S = { name, core, sysLabel, gameId: makeId(name, core), tab: 'patches', sel: null, compat: null, data: null };
     S.data = await modsGet(S.gameId);
-    S.sel = S.data.patches[0] ? S.data.patches[0].id : null;
+    S.sel = S.data.active || (S.data.patches[0] ? S.data.patches[0].id : null);
     root.querySelector('#ms-cover').innerHTML = makePlaceholderArt(name, core);
     getCoverArt(name, core).then(url => { if (url && S && S.name === name) root.querySelector('#ms-cover').innerHTML = '<img src="' + esc(url) + '" alt="">'; });
     root.classList.add('open'); render();
@@ -9905,10 +9946,10 @@ if ('serviceWorker' in navigator) {
       const actions = document.querySelector('#game-detail-overlay .detail-actions');
       if (actions && !actions.querySelector('.detail-modbtn')) {
         const sum = (await modsSummary()).get(makeId(name, core));
-        const n = sum && sum.on ? sum.patches + sum.cheats : 0;
+        const n = sum ? sum.stored + (sum.cheats ? 1 : 0) : 0;
         const b = document.createElement('button');
         b.className = 'detail-icon-btn detail-modbtn'; b.title = 'Mods';
-        b.innerHTML = '🧩 Mods' + (n ? '<span class="n">' + n + '</span>' : '');
+        b.innerHTML = '🧩 Mods' + (sum && sum.stored ? '<span class="n">' + sum.stored + '</span>' : '');
         b.addEventListener('click', () => openModLoader(name, core, sysLabel));
         actions.insertBefore(b, actions.children[1] || null);
       }
