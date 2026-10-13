@@ -2220,7 +2220,7 @@ body.game-active .wrap {
 @property --fx-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 
 /* ── Ambient backdrop ────────────────────────────────────────────── */
-#fx-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; contain: strict; }
+#fx-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; contain: strict; animation: fxFade 1.6s ease both; }
 .fx-orb {
   position: absolute; width: 64vmax; height: 64vmax; border-radius: 50%;
   opacity: .55; will-change: transform;
@@ -2258,7 +2258,8 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
 .wrap, .hdr { max-width: var(--fx-wrap); }
 
 /* ── Header ──────────────────────────────────────────────────────── */
-.hdr { margin-bottom: 22px; align-items: center; animation: fxDrop .8s var(--fx-out) both; }
+.hdr { margin-bottom: 22px; align-items: center; }
+html.fx-ready .hdr { animation: fxDrop .8s var(--fx-out) backwards; }
 .hdr-logo {
   position: relative; width: 54px; height: 54px; border-radius: 15px;
   box-shadow: 0 0 0 1px var(--fx-glass-br), 0 10px 34px var(--glow);
@@ -2276,7 +2277,6 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   background: linear-gradient(100deg, var(--text) 30%, var(--accent2) 60%, var(--text) 85%);
   background-size: 220% 100%; -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
-  animation: fxSheen 9s ease-in-out infinite;
 }
 .hdr-text p { letter-spacing: .06em; text-transform: uppercase; font-size: 10px; }
 .theme-btn {
@@ -2297,8 +2297,8 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   background: var(--fx-glass); border: 1px solid var(--fx-glass-br); border-radius: 18px;
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   margin-bottom: 26px; width: max-content; max-width: 100%; overflow-x: auto; scrollbar-width: none;
-  animation: fxDrop .8s .08s var(--fx-out) both;
 }
+html.fx-ready .home-tabs { animation: fxDrop .8s .08s var(--fx-out) backwards; }
 .home-tabs::-webkit-scrollbar { display: none; }
 .htab { position: relative; z-index: 1; border: none; margin: 0; padding: 10px 22px; border-radius: 13px; font-weight: 600; letter-spacing: .01em; transition: color .25s; }
 .htab.on { border-bottom: none; color: #fff; }
@@ -2309,11 +2309,11 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   background: linear-gradient(135deg, var(--accent), var(--accent2));
   clip-path: polygon(11px 0, 100% 0, calc(100% - 11px) 100%, 0 100%);
   box-shadow: 0 6px 24px var(--glow);
-  transition: transform .5s var(--fx-spring), width .5s var(--fx-spring);
+  opacity: 0; transition: transform .5s var(--fx-spring), width .5s var(--fx-spring), opacity .25s;
 }
-.tab-ind.no-anim { transition: none; }
-.fx-enter { animation: fxRise .6s var(--fx-out) both; }
-@keyframes fxRise { from { opacity: 0; transform: translateY(18px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+.tab-ind.no-anim { transition: opacity .25s; }
+.fx-enter { animation: fxRise .5s var(--fx-out) backwards; }
+@keyframes fxRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 /* ── Play tab layout ─────────────────────────────────────────────── */
 /* One column, always: hero → recents → a slim full-width drop bar. (A
@@ -2336,10 +2336,10 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
     linear-gradient(var(--fx-glass), var(--fx-glass)) padding-box,
     conic-gradient(from var(--fx-a), var(--fx-glass-br) 0 52%, var(--accent) 76%, var(--accent2) 88%, var(--fx-glass-br)) border-box;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  animation: fxSpin 8s linear infinite;
   transition: transform .4s var(--fx-spring), box-shadow .3s;
   overflow: hidden;
 }
+.dz:hover, .dz.drag { animation: fxSpin 4s linear infinite; } /* idle = still, so it can't repaint every frame */
 .dz::before {
   content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .9;
   background: radial-gradient(420px circle at 50% -20%, var(--fx-accent-soft), transparent 70%);
@@ -2365,8 +2365,8 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   box-shadow: 0 34px 80px -34px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.03) inset;
   transform: rotateX(var(--hry, 0deg)) rotateY(var(--hrx, 0deg));
   transition: transform .5s var(--fx-out), box-shadow .4s;
-  animation: fxHeroIn .9s var(--fx-out) both;
 }
+#tab-load.fx-enter .hero-card { animation: fxHeroIn .8s var(--fx-out) backwards; }
 .hero-card:hover { box-shadow: 0 44px 100px -34px var(--accent), 0 0 0 1px var(--fx-glass-br) inset; }
 .hero-art { transform: translate3d(calc(var(--hpx, 0) * -16px), calc(var(--hpy, 0) * -10px), 0); transition: transform .5s var(--fx-out); }
 .hero-art img { filter: brightness(.62) saturate(1.2); transform: scale(1.14); animation: fxKen 30s ease-in-out infinite alternate; }
@@ -2391,13 +2391,16 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   right: 28px; bottom: 28px; z-index: 3; width: auto; height: 56px; padding: 0 28px; border-radius: 16px;
   background: linear-gradient(135deg, var(--accent), var(--accent2)); font-weight: 800; font-size: 16px;
   clip-path: none; transition: transform .3s var(--fx-spring), filter .2s;
-  animation: fxRing 2.8s ease-out infinite;
 }
 .hero-play::after { content: 'Play'; margin-left: 9px; font-size: 14px; letter-spacing: .04em; }
 .hero-play:hover { transform: scale(1.07) translate(var(--mx, 0px), var(--my, 0px)); filter: brightness(1.12); }
 @keyframes fxHeroIn { from { opacity: 0; transform: translateY(26px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes fxKen   { from { transform: scale(1.14) translate(0, 0); } to { transform: scale(1.28) translate(-2.5%, -2%); } }
 @keyframes fxShine { 0%, 55% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+/* Pulse ring = transform+opacity on a pseudo-element (compositor only). The old
+   version animated box-shadow, which repaints the element every frame. */
+.hero-play::before, .detail-play-btn::before { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 2px solid var(--accent2); opacity: 0; pointer-events: none; animation: fxPulse 2.8s ease-out infinite; }
+@keyframes fxPulse { 0% { transform: scale(1); opacity: .65; } 70%, 100% { transform: scale(1.18, 1.4); opacity: 0; } }
 @keyframes fxRing  { 0% { box-shadow: 0 8px 30px var(--glow), 0 0 0 0 var(--fx-accent-mid); } 70% { box-shadow: 0 8px 30px var(--glow), 0 0 0 16px transparent; } 100% { box-shadow: 0 8px 30px var(--glow), 0 0 0 0 transparent; } }
 @media (max-width: 640px) {
   .hero-card { aspect-ratio: 4 / 3; border-radius: 22px; }
@@ -2412,7 +2415,8 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
 
 /* ── Recently played strip ───────────────────────────────────────── */
 .rp-strip { gap: 14px; padding: 6px 4px 14px; scroll-snap-type: x proximity; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent); }
-.rp-chip { flex: 0 0 118px; scroll-snap-align: start; border-radius: 14px; background: var(--fx-glass); border-color: var(--fx-glass-br); transition: transform .35s var(--fx-spring), border-color .2s, box-shadow .3s; animation: fxCardIn .6s var(--fx-out) backwards; animation-delay: calc(var(--i, 0) * 55ms); }
+.rp-chip { flex: 0 0 118px; scroll-snap-align: start; border-radius: 14px; background: var(--fx-glass); border-color: var(--fx-glass-br); transition: transform .35s var(--fx-spring), border-color .2s, box-shadow .3s; }
+.fx-enter .rp-chip { animation: fxCardIn .55s var(--fx-out) backwards; animation-delay: calc(var(--i, 0) * 50ms); }
 .rp-chip:hover { transform: translateY(-6px) scale(1.04) rotate(-.6deg); box-shadow: 0 18px 36px -14px var(--accent); }
 .rp-chip:nth-child(1) { --i: 0; } .rp-chip:nth-child(2) { --i: 1; } .rp-chip:nth-child(3) { --i: 2; }
 .rp-chip:nth-child(4) { --i: 3; } .rp-chip:nth-child(5) { --i: 4; } .rp-chip:nth-child(6) { --i: 5; }
@@ -2439,6 +2443,7 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
   opacity: .9; transition: width .45s var(--fx-out);
 }
 .lib-card:hover::before { width: 100%; }
+.lib-card { contain-intrinsic-size: auto 300px; }
 .lib-card .fx-glare { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .3s; mix-blend-mode: soft-light;
   background: radial-gradient(260px circle at var(--gx, 50%) var(--gy, 0%), rgba(255,255,255,.55), transparent 62%); }
 .lib-card:hover .fx-glare { opacity: 1; }
@@ -2455,7 +2460,7 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
 
 /* ── Game detail ─────────────────────────────────────────────────── */
 .game-detail-overlay { background: var(--bg); } /* base overlay was transparent: with no cover art the home page showed through */
-.game-detail-overlay.show { animation: fxDetailIn .7s var(--fx-out) both; }
+.game-detail-overlay.show { animation: fxFade .28s ease both; }
 .game-detail-overlay.closing { animation: fxDetailOut .28s ease-in both; }
 @keyframes fxDetailIn  { from { clip-path: circle(0% at var(--ox, 50%) var(--oy, 50%)); } to { clip-path: circle(150% at var(--ox, 50%) var(--oy, 50%)); } }
 @keyframes fxDetailOut { to { opacity: 0; transform: scale(1.03); } }
@@ -2463,18 +2468,19 @@ html.fx-paused .hero-art img, html.fx-paused .hero-play { animation-play-state: 
 .detail-scrim { background: linear-gradient(180deg, rgba(0,0,0,.25), var(--bg) 82%), radial-gradient(900px circle at 20% 10%, var(--fx-accent-soft), transparent 60%); }
 .detail-close { transition: transform .35s var(--fx-spring), background .2s; }
 .detail-close:hover { transform: rotate(90deg) scale(1.1); background: rgba(0,0,0,.75); }
-.detail-content > * { animation: fxRise .7s var(--fx-out) both; }
-.detail-content > :nth-child(1) { animation-delay: .12s; } .detail-content > :nth-child(2) { animation-delay: .2s; }
-.detail-content > :nth-child(3) { animation-delay: .26s; } .detail-content > :nth-child(4) { animation-delay: .32s; }
-.detail-content > :nth-child(5) { animation-delay: .36s; } .detail-content > :nth-child(6) { animation-delay: .42s; }
-.detail-content > :nth-child(7) { animation-delay: .5s; }
-.detail-art-frame { width: 200px; border-radius: 20px; border-color: var(--fx-glass-br); box-shadow: 0 40px 80px -20px rgba(0,0,0,.8), 0 0 70px -10px var(--accent); animation: fxArtIn .9s .1s var(--fx-spring) both, rp-float-y 7s 1s ease-in-out infinite; }
+.game-detail-overlay.fx-opening .detail-content > * { animation: fxRise .6s var(--fx-out) backwards; }
+.fx-opening .detail-content > :nth-child(1) { animation-delay: .1s; } .fx-opening .detail-content > :nth-child(2) { animation-delay: .17s; }
+.fx-opening .detail-content > :nth-child(3) { animation-delay: .22s; } .fx-opening .detail-content > :nth-child(4) { animation-delay: .27s; }
+.fx-opening .detail-content > :nth-child(5) { animation-delay: .31s; } .fx-opening .detail-content > :nth-child(6) { animation-delay: .35s; }
+.fx-opening .detail-content > :nth-child(7) { animation-delay: .4s; }
+.detail-art-frame { width: 200px; border-radius: 20px; border-color: var(--fx-glass-br); box-shadow: 0 40px 80px -20px rgba(0,0,0,.8), 0 0 70px -10px var(--accent); animation: rp-float-y 7s ease-in-out infinite; }
+.fx-opening .detail-art-frame { animation: fxArtIn .8s .05s var(--fx-spring) backwards, rp-float-y 7s .9s ease-in-out infinite; }
 @keyframes fxArtIn { from { opacity: 0; transform: translateY(40px) rotate(-6deg) scale(.86); } to { opacity: 1; transform: none; } }
 .detail-title { font-size: clamp(24px, 4vw, 38px); font-weight: 900; letter-spacing: -.03em; line-height: 1.05; }
 .detail-chip { background: var(--fx-glass); border-color: var(--fx-glass-br); transition: transform .25s var(--fx-spring); }
 .detail-chip:hover { transform: translateY(-2px) skewX(-6deg); }
 .detail-actions { flex-wrap: wrap; justify-content: center; }
-.detail-play-btn { position: relative; border-radius: 16px; padding: 15px 38px; font-weight: 800; letter-spacing: .02em; background: linear-gradient(135deg, var(--accent), var(--accent2)); transition: transform .3s var(--fx-spring), filter .2s; animation: fxRing 2.8s ease-out infinite; }
+.detail-play-btn { position: relative; border-radius: 16px; padding: 15px 38px; font-weight: 800; letter-spacing: .02em; background: linear-gradient(135deg, var(--accent), var(--accent2)); transition: transform .3s var(--fx-spring), filter .2s; box-shadow: 0 10px 30px -6px var(--glow); }
 .detail-play-btn:hover { transform: translateY(-3px) scale(1.04) translate(var(--mx, 0px), var(--my, 0px)); filter: brightness(1.1); }
 .detail-icon-btn { position: relative; border-radius: 16px; background: var(--fx-glass); border-color: var(--fx-glass-br); transition: transform .3s var(--fx-spring), border-color .2s, color .2s; }
 .detail-icon-btn:hover { transform: translateY(-3px) rotate(-6deg); border-color: var(--accent); }
@@ -2581,7 +2587,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 .ms-tab.on { color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 6px 18px var(--glow); }
 .ms-tab .n { margin-left: 6px; opacity: .8; font-weight: 600; }
 .ms-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -8px; padding: 2px 8px 14px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; }
-.ms-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 14px; cursor: pointer; background: var(--surf2); border: 1px solid transparent; animation: fxCardIn .5s var(--fx-out) backwards; animation-delay: calc(var(--i, 0) * 45ms); transition: border-color .2s, transform .3s var(--fx-spring), background .2s; }
+.ms-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 14px; cursor: pointer; background: var(--surf2); border: 1px solid transparent; transition: border-color .2s, transform .3s var(--fx-spring), background .2s; }
+.ms-list.ms-anim .ms-item { animation: fxCardIn .45s var(--fx-out) backwards; animation-delay: calc(var(--i, 0) * 40ms); }
 .ms-item:hover { transform: translateX(4px); border-color: var(--fx-glass-br); }
 .ms-item.sel { border-color: var(--accent); background: linear-gradient(100deg, var(--fx-accent-soft), var(--surf2) 70%); }
 .ms-item.off .ms-name { opacity: .5; text-decoration: line-through; text-decoration-color: var(--dim); }
@@ -2634,7 +2641,7 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 /* ── Reduced motion: remove movement, keep state changes legible ─── */
 @media (prefers-reduced-motion: reduce) {
   .fx-orb, .fx-beam, .hdr, .home-tabs, .hdr-logo::after, .hdr-text h1, .dz, .dz .big, .hero-card, .hero-card::before, .hero-art img, .hero-play,
-  .rp-chip, .fx-stagger .lib-card, .detail-content > *, .detail-art-frame, .detail-backdrop img, .detail-play-btn, .game-detail-overlay.show,
+  .fx-enter .rp-chip, .fx-stagger .lib-card, .fx-opening .detail-content > *, .detail-art-frame, .hero-play::before, .detail-play-btn::before, .detail-backdrop img, .detail-play-btn, .game-detail-overlay.show,
   .splash-art img, .splash-art-frame, .splash-art-frame::after, .splash-title, .splash-sys, .modal-bg.open, .modal-bg.open .modal,
   .ms-left, .ms-right, .ms-item, .ms-backdrop, .ms-empty .big, .fx-enter { animation: none !important; }
   .tab-ind, .lib-card, .launch-splash, .launch-splash.show, .toast, .ms-sw::after { transition-duration: .01ms !important; }
@@ -3427,8 +3434,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 <footer>ROM Player by Coops · Emulation core: <a href="https://emulatorjs.org" target="_blank" rel="noopener">EmulatorJS</a>, booted via our own <a href="https://github.com/coops-emulator/coops_emulator_backbone" target="_blank" rel="noopener">coops_emulator_backbone</a> wrapper · Runs 100% locally · No data uploaded</footer>
 <div class="toast" id="toast"></div>
 
-<script src="emulator-backbone.js?v=20261012091307"></script>
-<script src="mod-engine.js?v=20261012091307"></script>
+<script src="emulator-backbone.js?v=20261013004132"></script>
+<script src="mod-engine.js?v=20261013004132"></script>
 <script>
 /* ══ SYSTEM DEFINITIONS ══════════════════════════════
    `core` is ROM Player's own internal system id — used
@@ -7637,7 +7644,7 @@ _storageReadyPromise.then(async () => {
    the server every load. If newer, the update banner
    appears automatically in Settings.
 ═══════════════════════════════════════════════════ */
-const APP_VERSION = '20261012091307';
+const APP_VERSION = '20261013004132';
 
 // VERSION_URL: source of truth for checking whether an update is available.
 // We check our own Cloudflare domain first — instant and always in sync with what's live.
@@ -7669,7 +7676,7 @@ let _updateCheckInProgress = false;
    visitors see the tutorial instead, never this.
 ═══════════════════════════════════════════════════ */
 const CHANGELOG_ITEMS = [
-  '🧩 <strong>Mod Loader</strong> — save as many IPS, BPS and UPS patches (fan translations, ROM hacks, fixes) as you like for any game, then pick which one plays — one at a time, or the original in a tap. Cheat codes too. The original game is never changed',
+  '🧩 <strong>Mod Loader</strong> — save as many patches (IPS, BPS, UPS, xdelta, PPF, APS — fan translations, ROM hacks, fixes) as you like for any game, then pick which one plays — one at a time, or the original in a tap. Cheat codes too. The original game is never changed',
   '🎬 <strong>Cinematic redesign</strong> — new home billboard, 3D game cards, animated tabs, a diagonal-curtain launch, and a refreshed game page. Everything follows your theme, and respects reduced-motion',
   '✨ <strong>Premium gets a massive upgrade</strong> — 10 save slots with screenshot thumbnails, 8 exclusive themes, play stats dashboard, cloud library sync, and Linkup Room passwords',
   '📊 <strong>Stats dashboard</strong> — track total hours, top games by play time, and a 60-day activity heatmap (Premium, new 📊 tab)',
@@ -9446,9 +9453,16 @@ if ('serviceWorker' in navigator) {
   'use strict';
   const ME = window.CoopsModEngine;
   const STORE = 'mods';
-  const DISC_CORES = ['psx', 'ppsspp', 'saturn', 'segaCD'];
   const MAX_PATCHES = 32;
-  const kindFor = core => core === 'n64' ? 'n64' : core === 'snes' ? 'snes' : '';
+  const kindFor = core => ME.kindForCore(core);
+  // File extension of the STORED game (decides whether a disc system's image is a raw,
+  // patchable .iso/.bin/.img or a container like .cue/.chd/.pbp/.cso). Same source of
+  // truth the app uses to name the OPFS file, so it can't drift from what's on disk.
+  async function romExt(gameId) {
+    const meta = await dbGet(META_STORE, gameId).catch(() => null);
+    const fn = (meta && (meta.opfsFilename || (meta.romPointer && meta.romPointer.path))) || '';
+    return fn.indexOf('.') >= 0 ? fn.split('.').pop().toLowerCase() : '';
+  }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const esc = s => escapeHtml(s);
   const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
@@ -9568,7 +9582,8 @@ if ('serviceWorker' in navigator) {
 
     // ONE mod at a time: only the selected patch is applied (none = original game).
     const patches = st.active ? st.patches.filter(p => p.id === st.active) : [];
-    if (patches.length && DISC_CORES.indexOf(sys.core) === -1) {
+    const sup = patches.length ? ME.patchSupport(sys.core, await romExt(gameId)) : { ok: true };
+    if (patches.length && sup.ok) {
       splashStatus('Applying ' + patches[0].name.replace(/\.[^.]+$/, '') + '…');
       try {
         const rom = new Uint8Array(await (await fetch(romUrl)).arrayBuffer());
@@ -9596,7 +9611,7 @@ if ('serviceWorker' in navigator) {
         out.skipped.push({ name: 'All mods', reason: (e && e.message) || 'Patching failed.' });
       }
     } else if (patches.length) {
-      out.skipped.push({ name: 'Patches', reason: 'Patch mods aren\'t available for disc-based systems.' });
+      out.skipped.push({ name: patches[0].name, reason: sup.reason });
     }
 
     // Surface what happened — silently launching vanilla would look like a bug.
@@ -9648,7 +9663,7 @@ if ('serviceWorker' in navigator) {
         const bytes = new Uint8Array(await f.arrayBuffer());
         if (ME.detectFormat(bytes) === 'zip') {
           items = await ME.extractPatchesFromZip(bytes);
-          if (!items.length) { msgs.push(f.name + ': no .ips, .bps or .ups files inside.'); continue; }
+          if (!items.length) { msgs.push(f.name + ': no patch files (.ips .bps .ups .xdelta .ppf .aps) inside.'); continue; }
         } else items = [{ name: f.name, bytes }];
       } catch (e) { msgs.push(f.name + ': ' + (e.message || 'could not be read.')); continue; }
       for (const it of items) {
@@ -9658,7 +9673,7 @@ if ('serviceWorker' in navigator) {
         if (known.has(crc)) { msgs.push(it.name + ': already added.'); continue; }
         if (count >= MAX_PATCHES) { msgs.push('Limit of ' + MAX_PATCHES + ' patches per game reached.'); break; }
         const id = 'p::' + S.gameId + '::' + uid();
-        await dbPut(STORE, { id, uid: id.split('::').pop(), gameId: S.gameId, kind: 'patch', name: it.name.replace(/\.(ips|bps|ups)$/i, ''), file: it.name, fmt: d.format, size: it.bytes.length, enabled: true, order: ++order, header: 'auto', crc, info: d, added: Date.now() });
+        await dbPut(STORE, { id, uid: id.split('::').pop(), gameId: S.gameId, kind: 'patch', name: it.name.replace(/\.(ips|bps|ups|xdelta3?|vcdiff|ppf|aps|ebp)$/i, ''), file: it.name, fmt: d.format, size: it.bytes.length, enabled: true, order: ++order, header: 'auto', crc, info: d, added: Date.now() });
         await dbPut(STORE, { id: 'b::' + id, data: it.bytes.buffer.slice(it.bytes.byteOffset, it.bytes.byteOffset + it.bytes.byteLength) });
         known.add(crc); count++; addedIds.push(id);
         S.sel = id;
@@ -9693,20 +9708,30 @@ if ('serviceWorker' in navigator) {
     return buf ? new Uint8Array(buf) : null;
   }
 
+  // Dry-runs the REAL patch against the stored ROM through the same code path
+  // launch uses, so the answer can't disagree with what will actually happen.
   async function checkCompat(S, p) {
-    if (p.fmt === 'ips') return { cls: 'warn', text: 'IPS patches carry no checksum, so they can\'t be matched to your ROM automatically. If the game misbehaves, the patch probably targets a different version.' };
+    if (!S.support.ok) return { cls: 'bad', text: S.support.reason };
     const rom = await readRom(S);
     if (!rom) return { cls: 'warn', text: 'This game\'s file isn\'t stored on this device (cloud-only), so it can\'t be checked. Open the game once to download it.' };
-    const i = p.info || {};
-    const variants = ME.romVariants(rom, kindFor(S.core), p.header || 'auto');
-    for (const v of variants) if (v.data.length === i.sourceSize && ME.crc32(v.data) === i.sourceCrc) {
-      return { cls: 'ok', text: '✓ Matches your ROM (checksum ' + ME.hex8(i.sourceCrc).toUpperCase() + (v.label !== 'as-is' ? ', ' + v.label : '') + '). This patch will apply cleanly.' };
-    }
-    return { cls: 'bad', text: '✕ This patch expects ROM checksum ' + ME.hex8(i.sourceCrc).toUpperCase() + ' (' + fmtBytes(i.sourceSize) + '), but your copy is ' + ME.hex8(ME.crc32(rom)).toUpperCase() + ' (' + fmtBytes(rom.length) + '). It was made for a different version/region of the game, so it will be skipped at launch.' };
+    const blob = await dbGet(STORE, 'b::' + p.id).catch(() => null);
+    if (!blob || !blob.data) return { cls: 'bad', text: 'The patch data is missing — remove it and add it again.' };
+    await new Promise(r => setTimeout(r, 30)); // let "Checking…" paint before the synchronous work
+    try {
+      const r = ME.applyOne(rom, new Uint8Array(blob.data), { kind: kindFor(S.core), header: p.header || 'auto' });
+      const how = r.variant !== 'as-is' ? ' (using your ROM with ' + r.variant + ')' : '';
+      return r.verified
+        ? { cls: 'ok', text: '✓ This patch applies cleanly to your game and passed its own checksum' + how + '.' }
+        : { cls: 'warn', text: 'This patch applies to your game' + how + ', but its format has no checksum so the result can\'t be verified. If the game misbehaves, the patch probably targets a different version.' };
+    } catch (e) { return { cls: 'bad', text: '✕ ' + (e.message || 'This patch can\'t be applied to your game.') }; }
   }
 
   /* ── the sheet ───────────────────────────────────────────────── */
   let root, S = null, lastFocus = null;
+  // Escape is handled on the DOCUMENT while the sheet is open. Listening on the sheet
+  // itself stopped working after any click that re-rendered it: the focused button was
+  // destroyed, focus fell back to <body>, and the key never reached the sheet.
+  const onEsc = e => { if (e.key === 'Escape' && root && root.classList.contains('open')) { e.preventDefault(); closeModLoader(); } };
 
   function ensureRoot() {
     if (root) return root;
@@ -9733,7 +9758,6 @@ if ('serviceWorker' in navigator) {
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
     root.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeModLoader();
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.ms-item[role=radio]')) { e.preventDefault(); e.target.click(); }
     });
     const panel = root.querySelector('#ms-panel');
@@ -9760,7 +9784,7 @@ if ('serviceWorker' in navigator) {
       S.tab = 'cheats';
     }
     if (rest.length) {
-      if (DISC_CORES.indexOf(S.core) !== -1) showToast('Patch mods aren\'t available for disc-based systems — cheats only.');
+      if (!S.support.ok) { S.note = { cls: 'bad', text: S.support.reason + ' Cheats still work.' }; showToast('⚠️ ' + S.support.reason); }
       else {
         const before = (await modsGet(S.gameId)).patches.length;
         const msgs = await addPatchFiles(S, rest);
@@ -9791,19 +9815,21 @@ if ('serviceWorker' in navigator) {
 
   function statusPill(p) {
     const i = p.info || {};
-    if (p.fmt === 'ips') return '<span class="ms-pill warn" title="IPS has no checksum">unverified</span>';
-    return '<span class="ms-pill ok" title="Checked against your ROM\'s checksum when you play">checksummed</span>';
+    const checked = p.fmt === 'bps' || p.fmt === 'ups' || (p.fmt === 'xdelta' && i.adler) || ((p.fmt === 'ppf' || p.fmt === 'aps') && i.validated);
+    return checked
+      ? '<span class="ms-pill ok" title="Checked against your game\'s checksum when you play">checksummed</span>'
+      : '<span class="ms-pill warn" title="This patch has no checksum, so it can\'t be matched to your game automatically">unverified</span>';
   }
 
   function renderList() {
     const d = S.data, el = root.querySelector('#ms-list'), foot = root.querySelector('#ms-foot');
     const note = S.note ? '<div class="ms-note ' + S.note.cls + '" style="margin:0 0 4px">' + esc(S.note.text) + '</div>' : '';
     if (S.tab === 'patches') {
-      const disc = DISC_CORES.indexOf(S.core) !== -1;
+      const blocked = !S.support.ok;
       if (!d.patches.length) {
-        el.innerHTML = '<div class="ms-empty"><span class="big">🧩</span>' + (disc
-          ? '<b>Patches aren\'t available for disc systems.</b><br>You can still add cheat codes on the Cheats tab.'
-          : '<b>No patches yet.</b><br>Drop an <b>.ips</b>, <b>.bps</b> or <b>.ups</b> file (or a .zip containing one) anywhere on this window. Patches are applied on top of your game each time you play — the original is never changed.') + '</div>';
+        el.innerHTML = '<div class="ms-empty"><span class="big">🧩</span>' + (blocked
+          ? '<b>This game can\'t take patches.</b><br>' + esc(S.support.reason) + '<br>You can still add cheat codes on the Cheats tab.'
+          : '<b>No patches yet.</b><br>Drop a patch (<b>.ips .bps .ups .xdelta .ppf .aps</b>, or a .zip containing them) anywhere on this window. Patches are applied on top of your game each time you play — the original is never changed.') + '</div>';
       } else {
         const orig = `
           <div class="ms-item orig ${d.active ? '' : 'sel'}" data-act="use" data-id="" role="radio" aria-checked="${!d.active}" tabindex="0" style="--i:0">
@@ -9821,7 +9847,7 @@ if ('serviceWorker' in navigator) {
       }
       if (note) el.insertAdjacentHTML('afterbegin', note);
       foot.innerHTML = '<button class="ms-btn primary" data-act="add">＋ Add patch</button>';
-      foot.firstChild.disabled = DISC_CORES.indexOf(S.core) !== -1;
+      foot.firstChild.disabled = !S.support.ok;
     } else {
       if (!d.cheats.length) el.innerHTML = '<div class="ms-empty"><span class="big">✨</span><b>No cheats yet.</b><br>Paste codes on the right, or drop a .cht / .txt file. Enabled cheats switch on automatically when the game starts.</div>';
       else el.innerHTML = d.cheats.map((c, idx) => `
@@ -9852,6 +9878,9 @@ if ('serviceWorker' in navigator) {
     const i = p.info || {}, kind = kindFor(S.core);
     const rows = [['Format', ME.FORMAT_NAMES[p.fmt] || p.fmt], ['File size', fmtBytes(p.size)]];
     if (p.fmt === 'ips') { rows.push(['Edits', String(i.records)]); if (i.minRomSize) rows.push(['Touches up to', fmtBytes(i.minRomSize)]); }
+    else if (p.fmt === 'xdelta') { rows.push(['Output size', fmtBytes(i.targetSize)], ['Source needed', '≥ ' + fmtBytes(i.minRomSize)], ['Integrity check', i.adler ? 'Adler-32 on output' : 'none']); }
+    else if (p.fmt === 'ppf') { rows.push(['Version', 'PPF ' + i.ppfVersion + '.0'], ['Edits', String(i.records)], ['Disc check', i.validated ? 'validates your image' : 'none']); }
+    else if (p.fmt === 'aps') { rows.push(['Edits', String(i.records)], ['Output size', fmtBytes(i.targetSize)], ['Cartridge check', i.cart ? 'ID ' + i.cart : 'none']); }
     else { rows.push(['Needs ROM', ME.hex8(i.sourceCrc).toUpperCase() + ' · ' + fmtBytes(i.sourceSize)]); rows.push(['Produces', ME.hex8(i.targetCrc).toUpperCase() + ' · ' + fmtBytes(i.targetSize)]); }
     const cr = S.compat && S.compat.id === p.id ? S.compat.res : null;
     el.innerHTML = `<h3>${esc(p.name)}</h3>
@@ -9859,8 +9888,15 @@ if ('serviceWorker' in navigator) {
       <div class="ms-kv">${rows.map(r => '<div>' + esc(r[0]) + '</div><div>' + esc(r[1]) + '</div>').join('')}</div>
       ${i.meta ? '<div class="ms-note">' + esc(String(i.meta).replace(/<[^>]*>/g, ' ').trim().slice(0, 400)) + '</div>' : ''}
       ${cr ? '<div class="ms-note ' + cr.cls + '">' + esc(cr.text) + '</div>' : ''}
-      ${p.fmt === 'ips' && kind === 'snes' ? `<div class="ms-field"><label for="ms-header">ROM header</label><select id="ms-header" data-id="${esc(p.id)}"><option value="auto" ${p.header === 'auto' ? 'selected' : ''}>Auto (strip copier header)</option><option value="keep" ${p.header === 'keep' ? 'selected' : ''}>Keep header as-is</option><option value="strip" ${p.header === 'strip' ? 'selected' : ''}>Always strip header</option></select></div>` : ''}
+      ${p.fmt === 'ips' && ['snes', 'pce', 'nes', 'lynx'].indexOf(kind) !== -1 ? `<div class="ms-field"><label for="ms-header">ROM header</label><select id="ms-header" data-id="${esc(p.id)}"><option value="auto" ${p.header === 'auto' ? 'selected' : ''}>Auto (strip copier header)</option><option value="keep" ${p.header === 'keep' ? 'selected' : ''}>Keep header as-is</option><option value="strip" ${p.header === 'strip' ? 'selected' : ''}>Always strip header</option></select></div>` : ''}
       <div class="ms-row">${d.active === p.id ? '' : '<button class="ms-btn primary" data-act="use" data-id="' + esc(p.id) + '">Play with this mod</button>'}<button class="ms-btn" data-act="check" data-id="${esc(p.id)}">${cr ? 'Re-check' : 'Check against my game'}</button><button class="ms-btn danger" data-act="remove" data-id="${esc(p.id)}">Remove</button></div>`;
+  }
+
+  // Row entrance only when the list first appears or the tab changes — NOT on every
+  // toggle/select/rename re-render (that made the whole list flicker on each click).
+  function animateList() {
+    const l = root.querySelector('#ms-list'); l.classList.remove('ms-anim'); void l.offsetWidth; l.classList.add('ms-anim');
+    clearTimeout(l._t); l._t = setTimeout(() => l.classList.remove('ms-anim'), 900);
   }
 
   function renderPlay() {
@@ -9877,7 +9913,7 @@ if ('serviceWorker' in navigator) {
     if (act === 'close') return closeModLoader();
     if (act === 'select') { S.sel = id; return render(); }
     if (act === 'use') { e.stopPropagation(); await setActive(S.gameId, id || null); S.sel = id || S.sel; return refresh(); }
-    if (act === 'tab') { S.tab = t.dataset.tab; S.note = null; return render(); }
+    if (act === 'tab') { S.tab = t.dataset.tab; S.note = null; render(); return animateList(); }
     if (act === 'add' || act === 'cheat-import') return root.querySelector('#ms-file').click();
     if (act === 'play' || act === 'vanilla') {
       const { name, core, sysLabel } = S;
@@ -9927,10 +9963,13 @@ if ('serviceWorker' in navigator) {
     lastFocus = document.activeElement;
     S = { name, core, sysLabel, gameId: makeId(name, core), tab: 'patches', sel: null, compat: null, data: null };
     S.data = await modsGet(S.gameId);
+    S.ext = await romExt(S.gameId); S.support = ME.patchSupport(core, S.ext);
     S.sel = S.data.active || (S.data.patches[0] ? S.data.patches[0].id : null);
     root.querySelector('#ms-cover').innerHTML = makePlaceholderArt(name, core);
     getCoverArt(name, core).then(url => { if (url && S && S.name === name) root.querySelector('#ms-cover').innerHTML = '<img src="' + esc(url) + '" alt="">'; });
     root.classList.add('open'); render();
+    animateList();
+    document.addEventListener('keydown', onEsc);
     // restart the split entrance each open
     const panel = root.querySelector('#ms-panel'); panel.querySelectorAll('.ms-left,.ms-right').forEach(n => { n.style.animation = 'none'; void n.offsetWidth; n.style.animation = ''; });
     setTimeout(() => { const c = root.querySelector('.ms-close'); if (c) c.focus(); }, 60);
@@ -9939,6 +9978,7 @@ if ('serviceWorker' in navigator) {
   function closeModLoader(silent) {
     if (!root) return;
     root.classList.remove('open'); S = null;
+    document.removeEventListener('keydown', onEsc);
     if (!silent && lastFocus && lastFocus.focus) try { lastFocus.focus(); } catch (e) {}
     touch();
   }
@@ -9946,17 +9986,26 @@ if ('serviceWorker' in navigator) {
   /* ── game detail integration ─────────────────────────────────── */
   const _openDetail = window.openGameDetail;
   window.openGameDetail = async function (name, core, sysLabel) {
+    const ov = document.getElementById('game-detail-overlay');
+    const wasOpen = !!(ov && ov.classList.contains('show'));
     const r = await _openDetail.apply(this, arguments);
     try {
+      // Entrance stagger only on a genuine open — refreshes (cover art arriving,
+      // favourite toggled…) call this again and must not replay it.
+      if (ov && !wasOpen) { ov.classList.add('fx-opening'); clearTimeout(ov._fxO); ov._fxO = setTimeout(() => ov.classList.remove('fx-opening'), 1300); }
       const actions = document.querySelector('#game-detail-overlay .detail-actions');
       if (actions && !actions.querySelector('.detail-modbtn')) {
-        const sum = (await modsSummary()).get(makeId(name, core));
-        const n = sum ? sum.stored + (sum.cheats ? 1 : 0) : 0;
+        // Inserted immediately (no await first) so the row doesn't pop/shift a moment later;
+        // the count badge fills in when the summary arrives.
         const b = document.createElement('button');
         b.className = 'detail-icon-btn detail-modbtn'; b.title = 'Mods';
-        b.innerHTML = '🧩 Mods' + (sum && sum.stored ? '<span class="n">' + sum.stored + '</span>' : '');
+        b.innerHTML = '🧩 Mods<span class="n" style="display:none"></span>';
         b.addEventListener('click', () => openModLoader(name, core, sysLabel));
         actions.insertBefore(b, actions.children[1] || null);
+        modsSummary().then(m => {
+          const sum = m.get(makeId(name, core)), n = b.querySelector('.n');
+          if (sum && sum.stored && n) { n.textContent = sum.stored; n.style.display = ''; }
+        }).catch(() => {});
       }
     } catch (e) { /* the detail page must never break because of mods */ }
     return r;
@@ -10010,7 +10059,7 @@ if ('serviceWorker' in navigator) {
     const ind = document.createElement('span'); ind.className = 'tab-ind no-anim'; tabs.prepend(ind);
     const place = (instant) => {
       const on = tabs.querySelector('.htab.on');
-      if (!on) { ind.style.opacity = '0'; return; }
+      if (!on || !on.offsetWidth) { ind.style.opacity = '0'; return; } // not laid out yet → stay hidden, never flash at x=0
       ind.style.opacity = '1';
       if (instant) ind.classList.add('no-anim');
       tabs.style.setProperty('--ix', on.offsetLeft + 'px');
@@ -10023,6 +10072,22 @@ if ('serviceWorker' in navigator) {
     place(true);
   });
 
+  /* Entrance animations play ONCE per real appearance. They used to be attached to the
+     elements themselves, so every data refresh that re-rendered a section (recents,
+     hero, game page…) re-played its entrance — the "re-spawning / glitchy" loading.
+     Now a short-lived class on the container turns them on, then comes off. */
+  function enter(el) {
+    el.classList.remove('fx-enter'); void el.offsetWidth; el.classList.add('fx-enter');
+    clearTimeout(el._fxEnter); el._fxEnter = setTimeout(() => el.classList.remove('fx-enter'), 1100);
+  }
+  safe(() => {
+    // Wait for the boot overlay to leave before starting header/tab/page entrances,
+    // otherwise they run unseen underneath it and the app just "appears" static.
+    const go = () => { if (root.classList.contains('fx-ready')) return; root.classList.add('fx-ready'); const t = document.getElementById('tab-load'); if (t && t.style.display !== 'none') enter(t); };
+    const poll = () => { if (!document.getElementById('boot-overlay')) go(); else setTimeout(poll, 120); };
+    poll(); setTimeout(go, 4000);
+  });
+
   /* Panel entrance + library stagger on tab switch */
   safe(() => {
     const orig = window.showHomeTab; if (typeof orig !== 'function') return;
@@ -10030,10 +10095,10 @@ if ('serviceWorker' in navigator) {
       const r = orig.apply(this, arguments);
       safe(() => {
         const el = document.getElementById(id); if (!el) return;
-        el.classList.remove('fx-enter'); void el.offsetWidth; el.classList.add('fx-enter');
+        enter(el);
         if (id === 'tab-lib') {
           const l = document.getElementById('lib-list'); l.classList.add('fx-stagger');
-          clearTimeout(l._fxT); l._fxT = setTimeout(() => l.classList.remove('fx-stagger'), 1600);
+          clearTimeout(l._fxT); l._fxT = setTimeout(() => l.classList.remove('fx-stagger'), 1000);
         }
       });
       return r;
@@ -10127,7 +10192,7 @@ if ('serviceWorker' in navigator) {
   document.addEventListener('pointerdown', e => {
     root.style.setProperty('--ox', e.clientX + 'px'); root.style.setProperty('--oy', e.clientY + 'px');
     if (reduced) return;
-    const t = e.target.closest && e.target.closest('.detail-play-btn, .ms-btn, .theme-btn, .htab, .rx-btn, .act, .lib-sort-btn, .detail-icon-btn, .hero-play');
+    const t = e.target.closest && e.target.closest('.ms-btn, .theme-btn, .htab, .rx-btn, .act, .lib-sort-btn, .detail-icon-btn');
     if (!t) return;
     safe(() => {
       if (getComputedStyle(t).position === 'static') t.style.position = 'relative';

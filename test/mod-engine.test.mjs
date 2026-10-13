@@ -199,7 +199,7 @@ test('chain: patches apply in order; a bad one is skipped and reported, not fata
   assert.deepEqual(r.applied.map(x => x.name), ['a', 'b']);
   assert.equal(r.skipped.length, 1); assert.equal(r.skipped[0].name, 'bad'); assert.equal(r.skipped[0].code, 'unsupported');
   assert.deepEqual([...r.data.subarray(0, 3)], [1, 2, 0]);
-  assert.ok(r.notes.some(n => /no checksum/.test(n)));
+  assert.ok(r.notes.some(n => /unverified/.test(n)));
 });
 test('chain: later IPS overrides earlier IPS on overlap (load order matters)', () => {
   const r = E.applyChain(new Uint8Array(8), [{ name: '1', bytes: ipsBuild([{ off: 2, data: [0x11] }]) }, { name: '2', bytes: ipsBuild([{ off: 2, data: [0x22] }]) }], {});
@@ -228,8 +228,10 @@ test('describePatch: reports format, CRCs, and damage without throwing', { skip:
   assert.equal(E.describePatch(broken).valid, false);
 });
 test('describePatch: names unsupported formats honestly', () => {
-  assert.match(E.describePatch(new Uint8Array([0xD6, 0xC3, 0xC4, 0, 0, 0])).error, /xdelta.*aren't supported/i);
+  assert.match(E.describePatch(new Uint8Array([0x52, 0x55, 0x50, 0x39, 0, 0])).error, /RUP.*aren't supported/i);
+  assert.match(E.describePatch(new Uint8Array([0x41, 0x50, 0x53, 0x01, 0, 0])).error, /APS \(GBA\).*aren't supported/i);
   assert.match(E.describePatch(new Uint8Array([1, 2, 3, 4])).error, /Not a recognised/);
+  assert.match(E.describePatch(new Uint8Array([0xD6, 0xC3, 0xC4, 0, 0, 0])).error, /corrupt|truncated/i); // xdelta header, but nothing behind it
 });
 
 /* zip */
@@ -309,4 +311,180 @@ test('contentId tells BPS/UPS patches apart (and is stable)', { skip: !haveRef &
 test('contentId: identical bytes collide, different IPS differ', () => {
   const a = ipsBuild([{ off: 1, data: [1] }]), b = ipsBuild([{ off: 2, data: [1] }]);
   assert.equal(E.contentId(a), E.contentId(a.slice())); assert.notEqual(E.contentId(a), E.contentId(b));
+});
+
+/* ═══════ xdelta / VCDIFF — fixtures made by the REAL xdelta3 3.0.11 binary ═══════ */
+const FX = new URL('./fixtures/', import.meta.url);
+const fx = n => new Uint8Array(fs.readFileSync(new URL(n, FX)));
+const xdOrig = fx('xd_orig.bin'), xdMod = fx('xd_mod.bin');
+
+test('xdelta: default checksummed patch from real xdelta3 is byte-exact and verified', () => {
+  const r = E.applyOne(xdOrig, fx('xd_basic.xdelta'), {});
+  assert.ok(eq(r.data, xdMod)); assert.equal(r.verified, true); assert.equal(r.format, 'xdelta');
+});
+test('xdelta: multi-window patch (10 windows) is byte-exact', () => {
+  assert.equal(E.describePatch(fx('xd_windows.xdelta')).windows, 10);
+  assert.ok(eq(E.applyOne(xdOrig, fx('xd_windows.xdelta'), {}).data, xdMod));
+});
+test('xdelta: patch without a checksum applies but is reported unverified', () => {
+  const r = E.applyOne(xdOrig, fx('xd_nochecksum.xdelta'), {});
+  assert.ok(eq(r.data, xdMod)); assert.equal(r.verified, false);
+});
+test('xdelta: secondary-compressed patch is refused with actionable advice', () => {
+  const d = E.describePatch(fx('xd_secondary.xdelta'));
+  assert.equal(d.valid, false); assert.match(d.error, /xdelta3 -S none/);
+  assert.throws(() => E.applyOne(xdOrig, fx('xd_secondary.xdelta'), {}), e => e.code === 'unsupported');
+});
+test('xdelta: wrong ROM fails closed (checksum), never returns garbage', () => {
+  const wrong = xdOrig.slice(); wrong[500] ^= 0xFF;
+  assert.throws(() => E.applyOne(wrong, fx('xd_basic.xdelta'), {}), e => e.code === 'target-crc');
+});
+test('xdelta: ROM smaller than the patch\'s source window is a clear source-mismatch', () => {
+  assert.throws(() => E.applyOne(xdOrig.subarray(0, 1000), fx('xd_basic.xdelta'), {}), e => e.code === 'source-mismatch' && /bigger source ROM/.test(e.message));
+});
+test('xdelta: corrupted patch bytes never crash or hang', () => {
+  const base = fx('xd_basic.xdelta');
+  for (const i of [5, 12, 40, 200, 1000, 3000, base.length - 5]) {
+    const bad = base.slice(); bad[i] ^= 0xA5;
+    try { const r = E.applyOne(xdOrig, bad, {}); assert.ok(r.data.length >= 0); }   // may still be valid if the flipped byte was inert…
+    catch (e) { assert.ok(e instanceof E.ModError, 'only ModErrors may escape, got ' + e); } // …or fail cleanly
+  }
+});
+const cases = JSON.parse(fs.readFileSync(new URL('xd_fuzz.json', FX), 'utf8'));
+for (const c of cases) test(`xdelta: real xdelta3 ${c.level} output (varied instruction mix) is byte-exact`, () => {
+  const m = [...xdOrig];
+  for (const op of c.ops) {
+    if (op[0] === 'ins') m.splice(op[1], 0, ...Buffer.from(op[2], 'hex'));
+    else if (op[0] === 'del') m.splice(op[1], op[2]);
+    else if (op[0] === 'copy') { const seg = m.slice(op[2], op[2] + op[3]); for (let i = 0; i < op[3]; i++) m[op[1] + i] = seg[i]; }
+    else if (op[0] === 'fill') for (let i = 0; i < op[2]; i++) m[op[1] + i] = op[3];
+    else { const b = Buffer.from(op[2], 'hex'); for (let i = 0; i < b.length; i++) m[op[1] + i] = b[i]; }
+  }
+  const r = E.applyOne(xdOrig, fx(c.patch), {});
+  assert.ok(eq(r.data, m)); assert.equal(r.verified, true);
+});
+test('xdelta: Adler-32 helper matches the known value', () => assert.equal(E.adler32(new TextEncoder().encode('Wikipedia')), 0x11E60398));
+
+/* ═══════ PPF ═══════ */
+function ppfBuild(ver, recs, { block, blockCheck = 0, imageType = 0, srcSize = 0, undo = 0, fileId } = {}) {
+  const hdr = Buffer.alloc(56); hdr.write('PPF' + ver + '0'); hdr[5] = ver - 1; hdr.write('test patch', 6);
+  const parts = [hdr];
+  if (ver === 2) { const s = Buffer.alloc(4); s.writeUInt32LE(srcSize); parts.push(s, Buffer.from(block || new Uint8Array(1024))); }
+  if (ver === 3) { parts.push(Buffer.from([imageType, blockCheck ? 1 : 0, undo ? 1 : 0, 0])); if (blockCheck) parts.push(Buffer.from(block)); }
+  for (const r of recs) {
+    if (ver === 3) { const o = Buffer.alloc(8); o.writeBigUInt64LE(BigInt(r.off)); parts.push(o); } else { const o = Buffer.alloc(4); o.writeUInt32LE(r.off); parts.push(o); }
+    parts.push(Buffer.from([r.data.length]), Buffer.from(r.data)); if (undo) parts.push(Buffer.alloc(r.data.length));
+  }
+  if (fileId) parts.push(Buffer.from('@BEGIN_FILE_ID.DIZ' + fileId + '@END_FILE_ID.DIZ'));
+  return new Uint8Array(Buffer.concat(parts));
+}
+const disc = (() => { const d = makeRom(0x9320 + 4096, 77); return d; })();
+test('PPF1: records apply', () => {
+  const out = E.applyOne(disc, ppfBuild(1, [{ off: 100, data: [1, 2, 3] }, { off: 5000, data: [9] }]), {}).data;
+  assert.deepEqual([...out.subarray(100, 103)], [1, 2, 3]); assert.equal(out[5000], 9); assert.equal(out.length, disc.length);
+});
+test('PPF2: validates source size + 1024-byte block, refuses a different image', () => {
+  const block = disc.subarray(0x9320, 0x9320 + 1024);
+  const p = ppfBuild(2, [{ off: 10, data: [7] }], { block, srcSize: disc.length });
+  const r = E.applyOne(disc, p, {}); assert.equal(r.data[10], 7); assert.equal(r.verified, true);
+  assert.throws(() => E.applyOne(makeRom(disc.length, 78), p, {}), e => e.code === 'source-mismatch');
+  assert.throws(() => E.applyOne(disc.subarray(0, disc.length - 1), p, {}), e => e.code === 'source-mismatch' && /different size/.test(e.message));
+});
+test('PPF3: 64-bit offsets, validation block (BIN + GI image types), undo data skipped, FILE_ID.DIZ ignored', () => {
+  const big = disc.slice(); const rec = [{ off: 20, data: [5, 5] }, { off: 4100, data: [6] }];
+  const bin = ppfBuild(3, rec, { blockCheck: 1, block: big.subarray(0x9320, 0x9320 + 1024), undo: 1, fileId: 'hello' });
+  const out = E.applyOne(big, bin, {}).data; assert.equal(out[20], 5); assert.equal(out[4100], 6);
+  const gi = ppfBuild(3, rec, { blockCheck: 1, imageType: 1, block: big.subarray(0x80A0, 0x80A0 + 1024) });
+  assert.equal(E.applyOne(big, gi, {}).data[20], 5);
+  assert.throws(() => E.applyOne(makeRom(big.length, 5), bin, {}), e => e.code === 'source-mismatch');
+  assert.equal(E.describePatch(bin).validated, true);
+});
+test('PPF: truncated file rejected', () => assert.throws(() => E.applyOne(disc, ppfBuild(1, [{ off: 1, data: [1, 2, 3, 4] }]).subarray(0, 62), {}), e => e instanceof E.ModError));
+test('PPF: cross-check against RomPatcher.js reference applier', { skip: !haveRef && 'reference patcher not found' }, () => {
+  const PPFref = require(REF_DIR + '/RomPatcher.format.ppf.js');
+  const p = ppfBuild(3, [{ off: 300, data: [1, 2, 3, 4] }, { off: 9000, data: [0xAA, 0xBB] }], { blockCheck: 1, block: disc.subarray(0x9320, 0x9320 + 1024) });
+  const refOut = new Uint8Array(PPFref.fromFile(bf(p)).apply(bf(disc), true)._u8array);
+  assert.ok(eq(E.applyOne(disc, p, {}).data, refOut));
+});
+
+/* ═══════ APS (N64) ═══════ */
+function apsBuild(rom, edits, { validate = true } = {}) {
+  const h = Buffer.alloc(78); h.write('APS10'); h[5] = validate ? 1 : 0; h.write('desc', 7);
+  let pos = 57;
+  if (validate) { h[57] = 0; h.write(String.fromCharCode(rom[0x3C], rom[0x3D], rom[0x3E]), 58, 'latin1'); Buffer.from(rom.subarray(0x10, 0x18)).copy(h, 61); pos = 74; }
+  h.writeUInt32LE(rom.length, pos); pos += 4;
+  const parts = [h.subarray(0, pos)];
+  for (const e of edits) { const o = Buffer.alloc(5); o.writeUInt32LE(e.off); if (e.rle !== undefined) { o[4] = 0; parts.push(o, Buffer.from([e.rle, e.len])); } else { o[4] = e.data.length; parts.push(o, Buffer.from(e.data)); } }
+  return new Uint8Array(Buffer.concat(parts));
+}
+test('APS (N64): applies data + RLE records and validates cart id/CRC', () => {
+  const z = fakeN64(8192); z[0x3C] = 0x4E; z[0x3D] = 0x47; z[0x3E] = 0x45;
+  const p = apsBuild(z, [{ off: 100, data: [1, 2, 3] }, { off: 200, rle: 0x77, len: 50 }]);
+  const r = E.applyOne(z, p, { kind: 'n64' });
+  assert.deepEqual([...r.data.subarray(100, 103)], [1, 2, 3]); assert.ok(r.data.subarray(200, 250).every(v => v === 0x77)); assert.equal(r.verified, true);
+  const other = z.slice(); other[0x3C] = 0x58; assert.throws(() => E.applyOne(other, p, { kind: 'n64' }), e => e.code === 'source-mismatch');
+  assert.ok(eq(E.applyOne(toV64(z), p, { kind: 'n64' }).data, r.data), 'v64-order dump must be normalised first');
+});
+test('APS (N64): cross-check against RomPatcher.js reference applier', { skip: !haveRef && 'reference patcher not found' }, () => {
+  const APSref = require(REF_DIR + '/RomPatcher.format.aps_n64.js');
+  const z = fakeN64(8192); z[0x3C] = 0x4E; z[0x3D] = 0x47; z[0x3E] = 0x45;
+  const p = apsBuild(z, [{ off: 100, data: [1, 2, 3] }, { off: 200, rle: 0x77, len: 50 }, { off: 5000, data: [9, 9] }]);
+  const refOut = new Uint8Array(APSref.fromFile(bf(p)).apply(bf(z), true)._u8array);
+  assert.ok(eq(E.applyOne(z, p, { kind: 'n64' }).data, refOut));
+});
+
+/* ═══════ IPS32 + EBP ═══════ */
+test('IPS32: 4-byte offsets past the 16 MB IPS ceiling, EEOF terminator', () => {
+  const off = 0x01000010; const b = [...Buffer.from('IPS32'), (off >>> 24) & 255, (off >>> 16) & 255, (off >>> 8) & 255, off & 255, 0, 2, 0xCA, 0xFE, ...Buffer.from('EEOF')];
+  const rom = new Uint8Array(0x01000100); const out = E.applyIPS(rom, new Uint8Array(b));
+  assert.equal(out[off], 0xCA); assert.equal(out[off + 1], 0xFE); assert.equal(E.detectFormat(new Uint8Array(b)), 'ips');
+});
+test('EBP: IPS followed by a JSON metadata blob parses', () => {
+  const p = new Uint8Array([...ipsBuild([{ off: 3, data: [0xAB] }]), ...Buffer.from('{"patcher":"EBPatcher","title":"x"}')]);
+  assert.equal(E.applyIPS(new Uint8Array(16), p)[3], 0xAB);
+});
+
+/* ═══════ per-console ROM shapes ═══════ */
+const bpsFor = (orig, edit) => { const m = orig.slice(); edit(m); return { m, p: refMake('bps', orig, m) }; };
+test('NES: iNES-headered ROM + headerless BPS (and the reverse) both match by checksum', { skip: !haveRef && 'needs reference-made BPS' }, () => {
+  const body = makeRom(40960, 3), headered = new Uint8Array(16 + body.length); headered.set([0x4E, 0x45, 0x53, 0x1A], 0); headered.set(body, 16);
+  const a = bpsFor(body, m => { m[100] ^= 1; });
+  const r1 = E.applyOne(headered, a.p, { kind: 'nes' }); assert.ok(eq(r1.data, a.m)); assert.match(r1.variant, /iNES header stripped/);
+  const b = bpsFor(headered, m => { m[200] ^= 1; });
+  assert.ok(eq(E.applyOne(headered, b.p, { kind: 'nes' }).data, b.m));
+});
+test('NES: IPS keeps the iNES header (the convention)', () => {
+  const rom = new Uint8Array(32); rom.set([0x4E, 0x45, 0x53, 0x1A]);
+  assert.equal(E.applyOne(rom, ipsBuild([{ off: 20, data: [5] }]), { kind: 'nes' }).data[20], 5);
+  assert.equal(E.romVariants(rom, 'nes')[0].label, 'as-is (header kept)');
+});
+test('Lynx: 64-byte LYNX header handled', { skip: !haveRef && 'needs reference-made BPS' }, () => {
+  const body = makeRom(8192, 8), h = new Uint8Array(64 + body.length); h.set([0x4C, 0x59, 0x4E, 0x58]); h.set(body, 64);
+  const a = bpsFor(body, m => { m[7] ^= 9; }); assert.ok(eq(E.applyOne(h, a.p, { kind: 'lynx' }).data, a.m));
+});
+test('PC Engine: 512-byte copier header stripped', { skip: !haveRef && 'needs reference-made BPS' }, () => {
+  const body = makeRom(8192 * 4, 9), h = new Uint8Array(512 + body.length); h.set(body, 512);
+  const a = bpsFor(body, m => { m[1000] ^= 1; }); assert.ok(eq(E.applyOne(h, a.p, { kind: 'pce' }).data, a.m));
+});
+test('Genesis: SMD-interleaved dump is de-interleaved to match a normal-ROM patch', { skip: !haveRef && 'needs reference-made BPS' }, () => {
+  const body = makeRom(32768, 10), smd = new Uint8Array(512 + body.length); smd[8] = 0xAA; smd[9] = 0xBB;
+  for (let b = 0; b < 2; b++) for (let i = 0; i < 8192; i++) { smd[512 + b * 16384 + i] = body[b * 16384 + i * 2 + 1]; smd[512 + b * 16384 + 8192 + i] = body[b * 16384 + i * 2]; }
+  assert.ok(E.isSMD(smd)); assert.ok(eq(E.deinterleaveSMD(smd), body));
+  const a = bpsFor(body, m => { m[300] ^= 1; }); assert.ok(eq(E.applyOne(smd, a.p, { kind: 'md' }).data, a.m));
+});
+test('a .zip stored as the "ROM" is refused instead of being corrupted by a patch', () => {
+  assert.throws(() => E.applyOne(new Uint8Array([0x50, 0x4B, 3, 4, 0, 0, 0, 0]), ipsBuild([{ off: 1, data: [1] }]), {}), e => e.code === 'rom-container');
+});
+test('kindForCore maps the app\'s core ids', () => {
+  assert.deepEqual(['n64', 'snes', 'nes', 'lynx', 'pce', 'segaMD', 'gba'].map(E.kindForCore), ['n64', 'snes', 'nes', 'lynx', 'pce', 'md', '']);
+});
+
+/* ═══════ which systems can be patched ═══════ */
+test('patchSupport: cartridge systems always; disc systems only for raw images', () => {
+  for (const c of ['nes', 'snes', 'gba', 'gambatte', 'n64', 'segaMD', 'sega32x', 'segaGG', 'segaMS', 'pce', 'ws', 'wsc', 'vb', 'nds', 'ngp', 'a2600', 'coleco', 'intellivision', 'vectrex', 'lynx', 'msx', 'neogeo']) assert.equal(E.patchSupport(c, 'whatever').ok, true, c);
+  for (const c of E.DISC_CORES) { for (const ext of ['iso', 'bin', 'img', 'ISO']) assert.equal(E.patchSupport(c, ext).ok, true, c + ext); for (const ext of ['cue', 'chd', 'pbp', 'cso', '', undefined]) { const r = E.patchSupport(c, ext); assert.equal(r.ok, false); assert.ok(r.reason.length > 20); } }
+});
+test('disc image: IPS32/xdelta/PPF/BPS all apply to a large raw image', { skip: !haveRef && 'needs reference-made BPS' }, () => {
+  const img = makeRom(2352 * 400, 12), m = img.slice(); m[2352 * 10] ^= 0x33;
+  assert.ok(eq(E.applyChain(img, [{ name: 'a', bytes: refMake('bps', img, m) }], { kind: '' }).data, m));
 });

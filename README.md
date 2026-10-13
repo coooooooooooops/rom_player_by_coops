@@ -57,12 +57,16 @@ A browser-based retro gaming PWA. Drop in a ROM, hit play — no installs, no ex
 - Offline play — full PWA with service worker caching
 
 **Mod Loader** (per game, from the game's detail page → 🧩 Mods)
-- Patches — IPS, BPS and UPS (also inside a .zip). Store as many as you like per game; pick which ONE plays (or the original game) with the circle next to it. Rename them, check them against your ROM, remove them. Applied in memory on top of the stored ROM at launch; the original is never modified
-- BPS/UPS are checksum-verified (source, target and patch CRC32) and refused if they were built for a different ROM version; "Check against my game" shows expected vs actual checksum. IPS has no checksums, so it is flagged "unverified"
+- Patches — IPS (incl. IPS32 and EBP), BPS, UPS, **xdelta/VCDIFF**, **PPF 1/2/3** and **N64 APS**, also inside a .zip. Store as many as you like per game; pick which ONE plays (or the original game) with the circle next to it. Rename them, check them against your game, remove them. Applied in memory on top of the stored ROM at launch; the original is never modified
+- Every cartridge/ROM-file system is supported (NES, SNES, GB/GBC, GBA, DS, N64, Genesis/Mega Drive, 32X, Master System, Game Gear, PC Engine, Neo Geo, Atari 2600/Lynx, ColecoVision, Intellivision, Vectrex, MSX, WonderSwan, Virtual Boy, NGP). Disc systems (PS1, PSP, Saturn, Sega CD) are supported for raw **.iso/.bin/.img** images; .cue/.chd/.pbp/.cso are containers or index files and are refused with an explanation rather than corrupted
+- Console quirks handled automatically: N64 byte order (z64/v64/n64), SNES and PC Engine copier headers, NES iNES and Lynx headers (both tried, checksum-verified), Genesis SMD interleave
+- `Check against my game` dry-runs the real patch through the same code path as launch
+- BPS/UPS are checksum-verified (source, target and patch CRC32); xdelta (when built with its Adler-32), PPF 2/3 and N64 APS validate against the game; all are refused if they were built for a different version. IPS and unchecksummed xdelta/PPF1 are flagged "unverified"
+- Not supported: RUP, GBA-style APS, and xdelta files built with secondary compression (re-create with `xdelta3 -S none`)
 - N64 byte-order (z64/v64/n64) and SNES copier headers are handled automatically
 - Cheats — paste codes or import a RetroArch `.cht`/`.txt`; enabled cheats switch on when the game starts
 - Save states record which mod they were made under and warn before loading one made under a different mod (or the original)
-- Everything stays on the device (IndexedDB `mods` store, DB v6) — never synced or exported. Not supported: xdelta/PPF/APS/RUP, patching disc-based systems (cheats still work)
+- Everything stays on the device (IndexedDB `mods` store, DB v6) — never synced or exported. Cheats work on every system
 - Engine is `mod-engine.js` (DOM-free); tests: `node --test test/mod-engine.test.mjs` (cross-checked against RomPatcher.js when `ROMPATCHER_REF` points at its `modules/` folder)
 
 **Library**

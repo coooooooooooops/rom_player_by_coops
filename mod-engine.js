@@ -8,16 +8,17 @@
    IndexedDB, the Mod Loader sheet, launch() wiring — stays in index.html.
 
    WHAT A "MOD" IS HERE
-   • Patch  — an IPS / BPS / UPS file (ROM hacks, fan translations, bug
-              fixes, QoL patches). Applied IN MEMORY at launch time to a
+   • Patch  — an IPS (incl. IPS32/EBP), BPS, UPS, xdelta/VCDIFF, PPF or N64 APS
+              file (ROM hacks, fan translations, bug fixes, QoL patches). Applied IN MEMORY at launch time to a
               copy of the library ROM. The ROM stored in OPFS is never
               written to, so turning a mod off is always a clean revert and
               there is nothing to "restore".
    • Cheats — description + code pairs handed to EmulatorJS (EJS_cheats).
 
    WHAT IS DELIBERATELY NOT HERE
-   • xdelta/VCDIFF, PPF, APS, RUP: not implemented. detectFormat() names
-     them so the UI can say "xdelta isn't supported yet" instead of the
+   • RUP, GBA-style APS, and xdelta files that use SECONDARY compression
+     (LZMA/FGK/DJW — xdelta3's default on some builds): detectFormat() still
+     names them so the UI can say exactly what's unsupported instead of the
      generic "not a patch file". Better an honest refusal than a silent
      mis-apply that corrupts a ROM.
    • Texture packs / engine-level mods: EmulatorJS cores don't expose a
@@ -52,9 +53,9 @@
   // Sanity ceilings. A corrupt/hostile patch can claim a multi-GB target
   // size; without a cap, `new Uint8Array(size)` would take the whole tab
   // down before any CRC check had a chance to reject the file.
-  const MAX_PATCH_BYTES = 64 * 1024 * 1024;
-  const MAX_TARGET_BYTES = 512 * 1024 * 1024;
-  const MAX_ROM_PATCHABLE = 256 * 1024 * 1024; // see applyChain()
+  const MAX_PATCH_BYTES = 128 * 1024 * 1024;
+  const MAX_TARGET_BYTES = 1024 * 1024 * 1024;
+  const MAX_ROM_PATCHABLE = 768 * 1024 * 1024; // see applyChain() — covers a full CD image; bigger would not fit in a tab alongside the copy
 
   /* ── CRC32 ──────────────────────────────────────────────────────── */
   const CRC_TABLE = (() => {
@@ -88,18 +89,20 @@
   }
 
   function detectFormat(u8) {
-    if (startsWith(u8, 'PATCH')) return 'ips';
+    if (startsWith(u8, 'PATCH') || startsWith(u8, 'IPS32')) return 'ips';
     if (startsWith(u8, 'BPS1')) return 'bps';
     if (startsWith(u8, 'UPS1')) return 'ups';
     if (u8.length >= 4 && u8[0] === 0x50 && u8[1] === 0x4B && (u8[2] === 3 || u8[2] === 5)) return 'zip';
     if (u8.length >= 4 && u8[0] === 0xD6 && u8[1] === 0xC3 && u8[2] === 0xC4) return 'xdelta';
-    if (startsWith(u8, 'PPF')) return 'ppf';
-    if (startsWith(u8, 'APS')) return 'aps';
+    if (/^PPF[123]/.test(String.fromCharCode(u8[0] || 0, u8[1] || 0, u8[2] || 0, u8[3] || 0))) return 'ppf';
+    if (startsWith(u8, 'APS10')) return 'aps';       // N64 APS
+    if (startsWith(u8, 'APS')) return 'aps-gba';     // other APS dialect — named, not supported
     if (startsWith(u8, 'RUP9')) return 'rup';
     return 'unknown';
   }
 
-  const FORMAT_NAMES = { ips: 'IPS', bps: 'BPS', ups: 'UPS', zip: 'ZIP', xdelta: 'xdelta', ppf: 'PPF', aps: 'APS', rup: 'RUP', unknown: 'Unknown' };
+  const FORMAT_NAMES = { ips: 'IPS', bps: 'BPS', ups: 'UPS', zip: 'ZIP', xdelta: 'xdelta', ppf: 'PPF', aps: 'APS', 'aps-gba': 'APS (GBA)', rup: 'RUP', unknown: 'Unknown' };
+  const SUPPORTED = ['ips', 'bps', 'ups', 'xdelta', 'ppf', 'aps'];
 
   /* ── varint (shared by BPS + UPS) ───────────────────────────────── */
   // Uses multiplication rather than `<<` so values past 2^31 stay exact
@@ -129,25 +132,32 @@
   /* ── IPS ────────────────────────────────────────────────────────── */
   function parseIPS(p) {
     const recs = [];
-    let pos = 5, maxEnd = 0, truncate = -1;
-    const EOF = 0x454F46; // "EOF" read as a 24-bit big-endian offset
+    // IPS32 is the same format with 4-byte offsets and an "EEOF" terminator, used
+    // when a hack needs addresses past IPS's 16 MB ceiling (big GBA/NDS/N64/disc hacks).
+    const wide = startsWith(p, 'IPS32');
+    const OW = wide ? 4 : 3;
+    let pos = wide ? 5 : 5, maxEnd = 0, truncate = -1;
+    const EOF = wide ? 0x45454F46 : 0x454F46; // "EOF" / "EEOF" read as a big-endian offset
+    const rdOff = i => wide ? (p[i] * 16777216 + ((p[i + 1] << 16) | (p[i + 2] << 8) | p[i + 3])) : ((p[i] << 16) | (p[i + 1] << 8) | p[i + 2]);
     while (true) {
-      if (pos + 3 > p.length) {
+      if (pos + OW > p.length) {
         // Plenty of real-world IPS files are missing the EOF marker. Treat
         // end-of-file at a record boundary as a clean end rather than
         // rejecting an otherwise perfectly good patch.
         if (pos === p.length) break;
         throw new ModError('corrupt', 'The IPS file is truncated.');
       }
-      const off = (p[pos] << 16) | (p[pos + 1] << 8) | p[pos + 2];
-      pos += 3;
+      const off = rdOff(pos);
+      pos += OW;
       if (off === EOF) {
         const rest = p.length - pos;
+        // EBP (EarthBound Patch) = IPS + a JSON metadata blob after the terminator.
+        if (rest > 0 && p[pos] === 0x7B) break;
         // "EOF" bytes can also be a legitimate record offset (0x454F46 is a
         // valid ROM address). A true terminator is followed by nothing, or
         // by exactly a 3-byte truncation length (Lunar IPS extension).
         if (rest === 0) break;
-        if (rest === 3) { truncate = (p[pos] << 16) | (p[pos + 1] << 8) | p[pos + 2]; break; }
+        if (rest === OW) { truncate = rdOff(pos); break; }
       }
       if (pos + 2 > p.length) throw new ModError('corrupt', 'The IPS file is truncated.');
       const size = (p[pos] << 8) | p[pos + 1];
@@ -317,6 +327,218 @@
     return out;
   }
 
+
+  /* ── VCDIFF / xdelta (RFC 3284) ─────────────────────────────────── */
+  // The dominant format for big hacks (N64, GBA, NDS, PS1 …). Implemented from
+  // the RFC: default code table, near/same address caches, ADD/RUN/COPY, source
+  // and target windows, plus xdelta3's Adler-32 window checksum extension.
+  // NOT supported: secondary compression (headers/delta-indicators say so) and
+  // custom code tables — refused up front with a message telling the author how
+  // to re-export (`xdelta3 -S none`).
+  const VCD_TABLE = (() => {
+    const T = [], NOOP = 0, ADD = 1, RUN = 2, COPY = 3;
+    T.push([RUN, 0, 0, NOOP, 0, 0]);
+    T.push([ADD, 0, 0, NOOP, 0, 0]);
+    for (let s = 1; s <= 17; s++) T.push([ADD, s, 0, NOOP, 0, 0]);
+    for (let m = 0; m < 9; m++) { T.push([COPY, 0, m, NOOP, 0, 0]); for (let s = 4; s <= 18; s++) T.push([COPY, s, m, NOOP, 0, 0]); }
+    for (const cs of [4, 5, 6]) for (let m = 0; m < 6; m++) for (let a = 1; a <= 4; a++) T.push([ADD, a, 0, COPY, cs, m]);
+    for (let m = 6; m < 9; m++) for (let a = 1; a <= 4; a++) T.push([ADD, a, 0, COPY, 4, m]);
+    for (let m = 0; m < 9; m++) T.push([COPY, 4, m, ADD, 1, 0]);
+    return T; // 256 entries
+  })();
+
+  function adler32(u8) {
+    let a = 1, b = 0;
+    for (let i = 0; i < u8.length; i++) { a = (a + u8[i]) % 65521; b = (b + a) % 65521; }
+    return ((b << 16) | a) >>> 0;
+  }
+
+  // Big-endian base-128 integer (VCDIFF's, which is the OPPOSITE order to BPS's).
+  function vcdInt(r) {
+    let v = 0;
+    for (let g = 0; g < 9; g++) {
+      const b = r.byte();
+      v = v * 128 + (b & 0x7F);
+      if (!(b & 0x80)) return v;
+    }
+    throw new ModError('corrupt', 'The xdelta file is corrupt (bad number).');
+  }
+
+  const XD_SECONDARY = () => new ModError('unsupported',
+    'This xdelta patch uses extra (secondary) compression, which isn\'t supported yet. If you made it, re-create it with "xdelta3 -S none".');
+
+  // Walks the container without decoding; shared by describePatch() and apply.
+  function scanVCDIFF(p) {
+    if (p.length < 8 || p[3] !== 0) throw new ModError('corrupt', 'The xdelta file is corrupt or an unsupported version.');
+    const r = makeReader(p, 4, p.length);
+    const hdr = r.byte();
+    if (hdr & 1) throw XD_SECONDARY();
+    if (hdr & 2) throw new ModError('unsupported', 'This xdelta patch uses a custom code table, which isn\'t supported.');
+    if (hdr & 4) { const n = vcdInt(r); if (r.pos + n > p.length) throw new ModError('corrupt', 'The xdelta file is truncated.'); r.pos += n; }
+    const windows = [];
+    let total = 0, srcEnd = 0, adler = true;
+    while (r.pos < p.length) {
+      const win = r.byte(), w = { win };
+      if (win & 3) { w.sSize = vcdInt(r); w.sPos = vcdInt(r); if (win & 1) srcEnd = Math.max(srcEnd, w.sPos + w.sSize); }
+      const dLen = vcdInt(r); const wEnd = r.pos + dLen;
+      if (wEnd > p.length) throw new ModError('corrupt', 'The xdelta file is truncated.');
+      w.tLen = vcdInt(r);
+      if (r.byte() !== 0) throw XD_SECONDARY();
+      w.dataLen = vcdInt(r); w.instLen = vcdInt(r); w.addrLen = vcdInt(r);
+      if (win & 4) { w.adler = ((r.byte() * 16777216) + (r.byte() << 16) + (r.byte() << 8) + r.byte()) >>> 0; } else adler = false;
+      w.dataAt = r.pos; w.instAt = w.dataAt + w.dataLen; w.addrAt = w.instAt + w.instLen;
+      if (w.addrAt + w.addrLen !== wEnd) throw new ModError('corrupt', 'The xdelta file is corrupt (section sizes disagree).');
+      r.pos = wEnd; total += w.tLen;
+      if (total > MAX_TARGET_BYTES) throw new ModError('too-large', 'This patch would produce an unreasonably large ROM.');
+      windows.push(w);
+    }
+    if (!windows.length) throw new ModError('corrupt', 'The xdelta file contains no data.');
+    return { windows, total, srcEnd, adler };
+  }
+
+  function applyVCDIFF(rom, p) {
+    const sc = scanVCDIFF(p);
+    if (sc.srcEnd > rom.length) {
+      throw new ModError('source-mismatch', 'This patch needs a bigger source ROM than yours (' + fmtBig(sc.srcEnd) + ' vs ' + fmtBig(rom.length) + ') — it was made for a different version.', { expected: sc.srcEnd, actual: rom.length });
+    }
+    const out = new Uint8Array(sc.total);
+    let outPos = 0;
+    for (const w of sc.windows) {
+      let src = null;
+      if (w.win & 1) src = rom.subarray(w.sPos, w.sPos + w.sSize);
+      else if (w.win & 2) {
+        if (w.sPos + w.sSize > outPos) throw new ModError('corrupt', 'The xdelta file is corrupt (bad target-window reference).');
+        src = out.subarray(w.sPos, w.sPos + w.sSize);
+      }
+      const S = src ? src.length : 0;
+      const T = out.subarray(outPos, outPos + w.tLen);
+      const data = p.subarray(w.dataAt, w.instAt), inst = p.subarray(w.instAt, w.addrAt), addr = p.subarray(w.addrAt, w.addrAt + w.addrLen);
+      const ir = makeReader(inst, 0, inst.length), ar = makeReader(addr, 0, addr.length);
+      let dPos = 0, tPos = 0, nslot = 0;
+      const near = [0, 0, 0, 0], same = new Array(768).fill(0);
+      const exec = (type, size, mode) => {
+        if (type === 0) return;
+        if (size === 0) size = vcdInt(ir);
+        if (tPos + size > w.tLen) throw new ModError('corrupt', 'The xdelta file is corrupt (writes past the window).');
+        if (type === 1) { // ADD
+          if (dPos + size > data.length) throw new ModError('corrupt', 'The xdelta file is truncated.');
+          T.set(data.subarray(dPos, dPos + size), tPos); dPos += size; tPos += size;
+        } else if (type === 2) { // RUN
+          if (dPos >= data.length) throw new ModError('corrupt', 'The xdelta file is truncated.');
+          T.fill(data[dPos++], tPos, tPos + size); tPos += size;
+        } else { // COPY
+          const here = S + tPos;
+          let a;
+          if (mode === 0) a = vcdInt(ar);
+          else if (mode === 1) a = here - vcdInt(ar);
+          else if (mode < 6) a = near[mode - 2] + vcdInt(ar);
+          else a = same[(mode - 6) * 256 + ar.byte()];
+          near[nslot] = a; nslot = (nslot + 1) & 3; same[a % 768] = a;
+          if (a < 0 || a >= here) throw new ModError('corrupt', 'The xdelta file is corrupt (bad copy address).');
+          if (a + size <= S) { T.set(src.subarray(a, a + size), tPos); tPos += size; } // fast path: wholly in source
+          else for (let i = 0; i < size; i++, a++) T[tPos++] = a < S ? src[a] : T[a - S]; // may overlap itself → byte loop
+        }
+      };
+      while (ir.pos < inst.length) {
+        const e = VCD_TABLE[ir.byte()];
+        exec(e[0], e[1], e[2]);
+        exec(e[3], e[4], e[5]);
+      }
+      if (tPos !== w.tLen) throw new ModError('corrupt', 'The xdelta file is corrupt (window size mismatch).');
+      if (w.adler !== undefined && adler32(T) !== w.adler) {
+        throw new ModError('target-crc', 'The patched ROM failed its checksum, so it was not used. The patch may be for a different version of this game.');
+      }
+      outPos += w.tLen;
+    }
+    return { data: out, verified: sc.adler };
+  }
+
+  function fmtBig(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n + ' B'; }
+
+  /* ── PPF 1/2/3 (PlayStation disc patches) ───────────────────────── */
+  const PPF_BLOCK = 1024;
+  function parsePPF(p) {
+    const ver = p[3] - 0x30; // 'PPF1x' → 1, 'PPF2x' → 2, 'PPF3x' → 3
+    if (ver < 1 || ver > 3 || p.length < 60) throw new ModError('corrupt', 'The PPF file is truncated or corrupt.');
+    let end = p.length;
+    // Optional FILE_ID.DIZ blurb appended after the records.
+    const tag = '@BEGIN_FILE_ID.DIZ';
+    outer: for (let i = p.length - tag.length; i >= 56; i--) { for (let j = 0; j < tag.length; j++) if (p[i + j] !== tag.charCodeAt(j)) continue outer; end = i; break; }
+    let pos = 56, block = null, blockAt = 0x9320, srcSize = -1, undo = false;
+    if (ver === 2) {
+      srcSize = readU32LE(p, 56); pos = 60;
+      block = p.subarray(60, 60 + PPF_BLOCK); pos = 60 + PPF_BLOCK;
+    } else if (ver === 3) {
+      const imageType = p[56], blockCheck = p[57]; undo = !!p[58]; pos = 60;
+      if (imageType === 1) blockAt = 0x80A0;
+      if (blockCheck) { block = p.subarray(60, 60 + PPF_BLOCK); pos = 60 + PPF_BLOCK; }
+    }
+    if (pos > end) throw new ModError('corrupt', 'The PPF file is truncated.');
+    const recs = []; let maxEnd = 0;
+    while (pos < end) {
+      let off;
+      if (ver === 3) { if (pos + 9 > end) throw new ModError('corrupt', 'The PPF file is truncated.'); off = readU32LE(p, pos + 4) * 4294967296 + readU32LE(p, pos); pos += 8; }
+      else { if (pos + 5 > end) throw new ModError('corrupt', 'The PPF file is truncated.'); off = readU32LE(p, pos); pos += 4; }
+      const len = p[pos++];
+      if (pos + len > end) throw new ModError('corrupt', 'The PPF file is truncated.');
+      recs.push({ off, len, at: pos }); pos += len + (undo ? len : 0);
+      if (off + len > maxEnd) maxEnd = off + len;
+    }
+    return { ver, recs, maxEnd, block, blockAt, srcSize };
+  }
+  function applyPPF(rom, p) {
+    const h = parsePPF(p);
+    if (h.srcSize >= 0 && h.srcSize !== rom.length) {
+      throw new ModError('source-mismatch', 'This PPF was made for a disc image of a different size (' + fmtBig(h.srcSize) + ' vs your ' + fmtBig(rom.length) + ').', { expected: h.srcSize, actual: rom.length });
+    }
+    if (h.block) {
+      let ok = h.blockAt + PPF_BLOCK <= rom.length;
+      for (let i = 0; ok && i < PPF_BLOCK; i++) if (rom[h.blockAt + i] !== h.block[i]) ok = false;
+      if (!ok) throw new ModError('source-mismatch', 'This PPF was made for a different disc image (its validation block doesn\'t match yours) — check the game\'s region/version.');
+    }
+    const size = Math.max(rom.length, h.maxEnd);
+    if (size > MAX_TARGET_BYTES) throw new ModError('too-large', 'This patch would produce an unreasonably large image.');
+    const out = new Uint8Array(size); out.set(rom);
+    for (const r of h.recs) out.set(p.subarray(r.at, r.at + r.len), r.off);
+    return { data: out, verified: !!h.block || h.srcSize >= 0 };
+  }
+
+  /* ── APS (N64) ──────────────────────────────────────────────────── */
+  function parseAPS(p) {
+    if (p.length < 61) throw new ModError('corrupt', 'The APS file is truncated.');
+    const type = p[5]; let pos = 57, head = null;
+    if (type === 1) {
+      if (p.length < 78) throw new ModError('corrupt', 'The APS file is truncated.');
+      head = { cart: String.fromCharCode(p[58], p[59], p[60]), crc: p.subarray(61, 69) };
+      pos = 74;
+    } else if (type !== 0) throw new ModError('unsupported', 'This APS patch type isn\'t supported.');
+    const size = readU32LE(p, pos); pos += 4;
+    if (size > MAX_TARGET_BYTES) throw new ModError('too-large', 'This patch would produce an unreasonably large ROM.');
+    const recs = [];
+    while (pos < p.length) {
+      if (pos + 5 > p.length) throw new ModError('corrupt', 'The APS file is truncated.');
+      const off = readU32LE(p, pos), len = p[pos + 4]; pos += 5;
+      if (len === 0) { if (pos + 2 > p.length) throw new ModError('corrupt', 'The APS file is truncated.'); recs.push({ off, rle: p[pos], len: p[pos + 1] }); pos += 2; }
+      else { if (pos + len > p.length) throw new ModError('corrupt', 'The APS file is truncated.'); recs.push({ off, len, at: pos }); pos += len; }
+    }
+    return { type, head, size, recs };
+  }
+  function applyAPS(rom, p) {
+    const h = parseAPS(p);
+    if (h.head) {
+      let ok = rom.length >= 0x40 && String.fromCharCode(rom[0x3C], rom[0x3D], rom[0x3E]) === h.head.cart;
+      for (let i = 0; ok && i < 8; i++) if (rom[0x10 + i] !== h.head.crc[i]) ok = false;
+      if (!ok) throw new ModError('source-mismatch', 'This patch was made for a different version of the game (its cartridge ID/checksum doesn\'t match your ROM).');
+    }
+    const out = new Uint8Array(h.size); out.set(rom.subarray(0, Math.min(rom.length, h.size)));
+    for (const r of h.recs) {
+      if (r.off >= h.size) continue;
+      const len = Math.min(r.len, h.size - r.off);
+      if (r.rle !== undefined) out.fill(r.rle, r.off, r.off + len); else out.set(p.subarray(r.at, r.at + len), r.off);
+    }
+    return { data: out, verified: !!h.head };
+  }
+
   /* ── describing a patch without applying it ─────────────────────── */
   // Powers the info line + "needs ROM CRC xxxxxxxx" hint in the Mod Loader.
   // Never throws: a bad file comes back as { valid:false, error }.
@@ -343,9 +565,21 @@
         return { ...base, valid: ok, error: ok ? undefined : 'Patch checksum mismatch — the file is damaged.',
           sourceSize: h.inSize, targetSize: h.outSize, sourceCrc: h.sourceCrc, targetCrc: h.targetCrc };
       }
+      if (format === 'xdelta') {
+        const sc = scanVCDIFF(u8);
+        return { ...base, valid: true, targetSize: sc.total, minRomSize: sc.srcEnd, windows: sc.windows.length, adler: sc.adler };
+      }
+      if (format === 'ppf') {
+        const h = parsePPF(u8);
+        return { ...base, valid: true, records: h.recs.length, minRomSize: h.maxEnd, ppfVersion: h.ver, validated: !!h.block || h.srcSize >= 0 };
+      }
+      if (format === 'aps') {
+        const h = parseAPS(u8);
+        return { ...base, valid: true, records: h.recs.length, targetSize: h.size, validated: !!h.head, cart: h.head ? h.head.cart : undefined };
+      }
       if (format === 'zip') return { ...base, valid: true, container: true };
-      if (format === 'unknown') return { ...base, error: 'Not a recognised patch file. IPS, BPS and UPS patches are supported.' };
-      return { ...base, error: FORMAT_NAMES[format] + ' patches aren\'t supported yet. IPS, BPS and UPS patches are.' };
+      if (format === 'unknown') return { ...base, error: 'Not a recognised patch file. Supported: IPS, BPS, UPS, xdelta, PPF and N64 APS.' };
+      return { ...base, error: FORMAT_NAMES[format] + ' patches aren\'t supported yet. Supported: IPS, BPS, UPS, xdelta, PPF and N64 APS.' };
     } catch (e) {
       return { ...base, error: e.message };
     }
@@ -388,46 +622,103 @@
 
   const isCopierHeadered = u8 => u8.length > 512 && (u8.length % 1024) === 512;
 
+  /* Other consoles' on-disk quirks, same idea as N64/SNES above:
+       NES   16-byte iNES header ("NES\x1A") — most patches INCLUDE it, some are
+             built headerless, so BPS/UPS/xdelta try both (checksum-verified);
+             IPS keeps it (the iNES convention).
+       Lynx  64-byte "LYNX" header — same treatment.
+       PCE   512-byte copier header (size%8192 == 512) — stripped first.
+       MD    Genesis "SMD" dumps: 512-byte header + 16 KB blocks with odd/even
+             bytes split. Patches target the de-interleaved ROM, so it's rebuilt.  */
+  const hasMagic = (u8, str) => u8.length > str.length && [...str].every((c, i) => u8[i] === c.charCodeAt(0));
+  function isSMD(u8) { return u8.length > 512 && ((u8.length - 512) % 16384) === 0 && u8[8] === 0xAA && u8[9] === 0xBB; }
+  function deinterleaveSMD(u8) {
+    const blocks = (u8.length - 512) / 16384, out = new Uint8Array(blocks * 16384);
+    for (let b = 0; b < blocks; b++) {
+      const src = 512 + b * 16384, dst = b * 16384;
+      for (let i = 0; i < 8192; i++) { out[dst + i * 2 + 1] = u8[src + i]; out[dst + i * 2] = u8[src + 8192 + i]; }
+    }
+    return out;
+  }
+
   /**
    * Candidate shapes of `rom` to try, in preference order.
-   * `kind`: 'n64' | 'snes' | anything else (treated as "as-is only").
-   * `header`: 'auto' | 'keep' | 'strip' — user override for SNES-style headers.
+   * `kind`: 'n64' | 'snes' | 'nes' | 'lynx' | 'pce' | 'md' | anything else (as-is only).
+   * `header`: 'auto' | 'keep' | 'strip' — user override for header-bearing ROMs.
    */
   function romVariants(rom, kind, header) {
     const list = [];
+    const asIs = { label: 'as-is', data: rom };
+    // Generic "optional header" ordering: `keepFirst` says which the convention prefers.
+    const headered = (stripLen, keepFirst, what) => {
+      const stripped = { label: what + ' header stripped', data: rom.subarray(stripLen) }, kept = { label: 'as-is (header kept)', data: rom };
+      if (header === 'keep') return [kept];
+      if (header === 'strip') return [stripped];
+      return keepFirst ? [kept, stripped] : [stripped, kept];
+    };
     if (kind === 'n64') {
       const order = n64Order(rom);
       if (order && order !== 'z64') list.push({ label: 'N64 ' + order + ' → z64', data: toZ64(rom, order) });
-      list.push({ label: 'as-is', data: rom });
+      list.push(asIs);
       return list;
     }
-    if (kind === 'snes' && isCopierHeadered(rom)) {
-      const stripped = rom.subarray(512);
-      if (header === 'keep') list.push({ label: 'as-is (header kept)', data: rom });
-      else if (header === 'strip') list.push({ label: 'header stripped', data: stripped });
-      else {
-        // auto: headerless first (modern convention), headered as fallback.
-        list.push({ label: 'header stripped', data: stripped });
-        list.push({ label: 'as-is (header kept)', data: rom });
-      }
-      return list;
-    }
-    list.push({ label: 'as-is', data: rom });
+    if (kind === 'snes' && isCopierHeadered(rom)) return headered(512, false, 'copier');
+    if (kind === 'pce' && rom.length > 512 && (rom.length % 8192) === 512) return headered(512, false, 'copier');
+    if (kind === 'nes' && hasMagic(rom, 'NES\x1A')) return headered(16, true, 'iNES');
+    if (kind === 'lynx' && hasMagic(rom, 'LYNX') && rom.length > 64) return headered(64, true, 'Lynx');
+    if (kind === 'md' && isSMD(rom)) return [{ label: 'SMD de-interleaved', data: deinterleaveSMD(rom) }, asIs];
+    list.push(asIs);
     return list;
+  }
+
+  /* ── which consoles can take patches ────────────────────────────── */
+  // Cartridge/ROM-file systems: the stored file IS the ROM, so any supported
+  // patch applies. Disc systems: only a RAW image (.iso/.bin/.img) can be
+  // patched — .cue is a text index, .chd/.cso/.pbp are compressed containers, so
+  // patching their bytes would silently corrupt them. (That IPS-on-a-container
+  // corruption is exactly why this check exists rather than "try and see".)
+  const DISC_CORES = ['psx', 'ppsspp', 'saturn', 'segaCD'];
+  const RAW_DISC_EXT = ['iso', 'bin', 'img'];
+  const KIND_BY_CORE = { n64: 'n64', snes: 'snes', nes: 'nes', lynx: 'lynx', pce: 'pce', segaMD: 'md' };
+  const kindForCore = core => KIND_BY_CORE[core] || '';
+  function patchSupport(core, ext) {
+    if (DISC_CORES.indexOf(core) === -1) return { ok: true, disc: false };
+    ext = String(ext || '').toLowerCase().replace(/^\./, '');
+    if (RAW_DISC_EXT.indexOf(ext) !== -1) return { ok: true, disc: true };
+    return { ok: false, disc: true, reason: ext
+      ? 'This game is stored as .' + ext + ', which is a container or index file, so it can\'t be patched directly. Mods work on raw disc images (.iso, .bin or .img).'
+      : 'This game\'s disc format couldn\'t be determined, so it can\'t be patched safely. Mods work on raw disc images (.iso, .bin or .img).' };
   }
 
   /* ── single patch application with variant selection ────────────── */
   function applyOne(rom, patch, opts) {
     const format = detectFormat(patch);
-    if (!['ips', 'bps', 'ups'].includes(format)) {
-      throw new ModError('unsupported', (FORMAT_NAMES[format] || 'This') + ' patches aren\'t supported yet. IPS, BPS and UPS patches are.');
+    if (SUPPORTED.indexOf(format) === -1) {
+      throw new ModError('unsupported', (FORMAT_NAMES[format] || 'This') + ' patches aren\'t supported yet. Supported: IPS, BPS, UPS, xdelta, PPF and N64 APS.');
+    }
+    if (rom.length >= 2 && rom[0] === 0x50 && rom[1] === 0x4B && (rom[2] === 3 || rom[2] === 5)) {
+      throw new ModError('rom-container', 'This game is stored as a .zip archive, which can\'t be patched directly.');
     }
     const variants = romVariants(rom, opts && opts.kind, opts && opts.header);
 
-    if (format === 'ips') {
-      // No checksums to arbitrate, so take the first (preferred) variant.
+    if (format === 'ips' || format === 'ppf' || format === 'aps') {
+      // IPS has no checksums to arbitrate, so it takes the preferred variant.
+      // PPF/APS validate against the ROM themselves (and throw on mismatch).
       const v = variants[0];
-      return { data: applyIPS(v.data, patch), variant: v.label, verified: false, format };
+      const r = format === 'ips' ? { data: applyIPS(v.data, patch), verified: false }
+        : format === 'ppf' ? applyPPF(v.data, patch) : applyAPS(v.data, patch);
+      return { data: r.data, variant: v.label, verified: r.verified, format };
+    }
+
+    if (format === 'xdelta') {
+      // No source checksum in VCDIFF; the window Adler-32 (when present) verifies
+      // the OUTPUT, so a wrong variant shows up as a failed checksum and we move on.
+      let firstErr = null;
+      for (const v of variants) {
+        try { const r = applyVCDIFF(v.data, patch); return { data: r.data, variant: v.label, verified: r.verified, format }; }
+        catch (e) { if (!firstErr) firstErr = e; if (e.code !== 'target-crc' && e.code !== 'source-mismatch' && e.code !== 'corrupt') throw e; }
+      }
+      throw firstErr;
     }
 
     assertPatchCrc(patch, FORMAT_NAMES[format]);
@@ -475,7 +766,7 @@
         cur = r.data;
         result.applied.push({ name: p.name, format: r.format, variant: r.variant, verified: r.verified });
         if (r.variant !== 'as-is') result.notes.push(p.name + ': applied to ROM with ' + r.variant);
-        if (!r.verified && r.format === 'ips') result.notes.push(p.name + ': IPS patches have no checksum, so the result can\'t be verified.');
+        if (!r.verified) result.notes.push(p.name + ': ' + (FORMAT_NAMES[r.format] || r.format) + ' patch couldn\'t be checksum-verified, so the result is unverified.');
       } catch (e) {
         result.skipped.push({ name: p.name, code: e.code || 'error', reason: e.message || String(e) });
       }
@@ -523,7 +814,7 @@
       cd += 46 + nlen + elen + clen;
 
       if (/\/$/.test(name) || /(^|\/)__MACOSX\//.test(name) || /(^|\/)\._/.test(name)) continue;
-      if (!/\.(ips|bps|ups)$/i.test(name)) continue;
+      if (!/\.(ips|bps|ups|xdelta3?|vcdiff|ppf|aps|ebp)$/i.test(name)) continue;
       if (flags & 1) throw new ModError('unsupported', 'That .zip is password-protected.');
       if (usize > MAX_PATCH_BYTES) continue;
       if (lho + 30 > u8.length || dv.getUint32(lho, true) !== 0x04034B50) continue;
@@ -647,8 +938,10 @@
   return {
     ModError, crc32, hex8, detectFormat, describePatch, FORMAT_NAMES,
     applyIPS, applyBPS, applyUPS, applyOne, applyChain,
-    n64Order, toZ64, isCopierHeadered, romVariants,
+    n64Order, toZ64, isCopierHeadered, romVariants, patchSupport, kindForCore, isSMD, deinterleaveSMD,
+    applyVCDIFF, applyPPF, applyAPS, adler32,
     extractPatchesFromZip, parseCheats, fingerprint, contentId,
+    SUPPORTED, DISC_CORES, RAW_DISC_EXT,
     LIMITS: { MAX_PATCH_BYTES, MAX_TARGET_BYTES, MAX_ROM_PATCHABLE, MAX_CHEATS },
   };
 });
